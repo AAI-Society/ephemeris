@@ -1,1 +1,10 @@
 /target
+
+# LaTeX intermediates. `paper/main.pdf` IS committed — it is the readable
+# artefact — but nothing that produces it is.
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/*.toc

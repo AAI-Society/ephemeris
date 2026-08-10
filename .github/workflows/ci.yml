@@ -48,6 +48,22 @@ jobs:
       # relinks the chain is internally perfect, and must still fail against a
       # root published before the rewrite. If `verify` ever exits 0 here, the
       # A9 defence has regressed no matter what the unit tests say.
+      # The README's headline console block is generated, not typed. If the
+      # example stops producing it, the README is making a claim the code no
+      # longer supports.
+      - name: the rewrite demonstration still demonstrates something
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(cargo run --quiet --example rewrite)"
+          echo "$out"
+          grep -q 'chain verifies internally:      true' <<<"$out" \
+            || { echo "::error::the rewritten log no longer passes its internal checks — the demonstration has lost its point"; exit 1; }
+          grep -q 'accepted with no prior root:    true' <<<"$out" \
+            || { echo "::error::the rewrite is no longer accepted without a prior root; the tool's stated limitation changed silently"; exit 1; }
+          grep -q 'REFUSED' <<<"$out" \
+            || { echo "::error::the rewrite was NOT refused against the published prior root — A9 has regressed"; exit 1; }
+
       - name: a rewritten log fails against a prior root
         shell: bash
         run: |
@@ -70,3 +86,16 @@ jobs:
           set -e
           [ "$code" -eq 1 ] \
             || { echo "::error::verify exited $code against a contradicting prior root, expected 1"; exit 1; }
+
+  # The paper is built to prove it still compiles. It is deliberately NOT
+  # diff-gated against the committed PDF: tectonic stamps a CreationDate, so
+  # two builds of identical sources differ byte-for-byte and the check would
+  # fail on every run. Keeping paper/main.pdf current is a manual step.
+  paper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: WtfJoke/setup-tectonic@v3
+      # No `-Z shell-escape`: this preamble omits `minted`, so the build has
+      # no pygments dependency to satisfy here.
+      - run: cd paper && tectonic main.tex

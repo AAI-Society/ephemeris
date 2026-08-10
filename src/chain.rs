@@ -10,8 +10,8 @@ pub const GENESIS: [u8; 32] = [0u8; 32];
 ///
 /// **This differs from the schema, deliberately.** The evidence schema defines
 /// `chain_head` as `H(previous_head ‖ canonical_snapshot_hash ‖ verdict)` —
-/// three fields of the record, not the record. Chaining over only those three
-/// leaves every other field unprotected by the chain: `step_index`,
+/// two fields of the record plus the previous head, not the record. Chaining
+/// over only those two leaves every other field unprotected: `step_index`,
 /// `target_resource`, `policy_bundle_hash` and the identity fields could all be
 /// altered without breaking a single link.
 ///

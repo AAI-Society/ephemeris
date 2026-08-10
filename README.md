@@ -116,8 +116,8 @@ under which acking is unsafe.
 ### The chain the schema specifies does not cover the record
 
 The evidence schema defines `chain_head` as
-`H(previous_head ‖ canonical_snapshot_hash ‖ verdict)` — three fields of the
-record rather than the record. So the chain protects those three fields and
+`H(previous_head ‖ canonical_snapshot_hash ‖ verdict)` — two fields of the
+record, plus the previous head. So the chain protects those two fields and
 nothing else. `step_index`, `target_resource`, `policy_bundle_hash`, and every
 identity field can be altered without breaking a single link, and the log will
 verify.
@@ -214,7 +214,7 @@ that rather than the proof code.
 
 | | Standard | |
 | :-- | :-- | :-- |
-| ⚠️ | **`chain_head`** — defined as `H(previous_head ‖ canonical_snapshot_hash ‖ verdict)` | three fields, not the record. `step_index`, `target_resource`, `policy_bundle_hash` and the identity fields are outside the chain and can be altered without breaking a link |
+| ⚠️ | **`chain_head`** — defined as `H(previous_head ‖ canonical_snapshot_hash ‖ verdict)` | two record fields, not the record. `step_index`, `target_resource`, `policy_bundle_hash` and the identity fields are outside the chain and can be altered without breaking a link |
 | ⚠️ | **C7.3.5** — the reference implementation compares record counts | length is not evidence. A rewritten log has exactly the right length; the test asserting so is `a_step_count_comparison_alone_would_have_accepted_the_rewrite` |
 | ◻︎ | **C7.3.3 equivocation** — no external publication point is specified | until one exists, A9 stands against every deployment of this component, however well its proofs are implemented |
 | ◻︎ | **C7.1.3 fail-closed** — stated as a requirement, with no test methodology | the obvious fault injection does not inject the fault; see above |
