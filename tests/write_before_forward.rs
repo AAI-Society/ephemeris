@@ -46,7 +46,7 @@ fn acks_carry_contiguous_step_indices_in_submission_order() {
     );
     let steps: Vec<u64> = acks
         .iter()
-        .map(|a| a.as_ref().unwrap().step_index)
+        .map(|a| a.as_ref().unwrap().step_index())
         .collect();
     assert_eq!(steps, vec![0, 1, 2]);
 }

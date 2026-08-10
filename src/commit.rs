@@ -1,14 +1,34 @@
 use crate::record::{Claim, Record};
-use crate::store::Store;
+use crate::store::{Store, StoreError};
 use std::path::Path;
 use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
 use std::thread::JoinHandle;
 
 /// What a caller receives once, and only once, its record is durable.
+///
+/// Fields are private and reachable only through the accessors below. This
+/// is not decoration: `Ack` is the enforcement mechanism for "never
+/// acknowledge before durable," and that guarantee only holds if nothing
+/// outside `commit.rs` can construct one. Public fields would let any caller
+/// — including a future "degrade gracefully under load" code path holding
+/// only a `QueueHandle` — synthesize an `Ack` for a claim that was never
+/// written, which is exactly the failure mode this type exists to rule out.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ack {
-    pub step_index: u64,
-    pub chain_head: String,
+    step_index: u64,
+    chain_head: String,
+}
+
+impl Ack {
+    /// The position this record occupies in the log.
+    pub fn step_index(&self) -> u64 {
+        self.step_index
+    }
+
+    /// The chain head after this record was appended.
+    pub fn chain_head(&self) -> &str {
+        &self.chain_head
+    }
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
@@ -65,6 +85,18 @@ impl Committer {
         }
     }
 
+    /// Test-only hook: make the *next* batch this committer writes land its
+    /// bytes for real and then fail as though `fsync` had failed, without
+    /// discarding anything already committed. Not part of the serving API.
+    ///
+    /// Deliberately does **not** set `unavailable` itself — that is
+    /// `submit_at`'s job once the resulting `Sync` error actually happens,
+    /// which is the behaviour under test.
+    #[doc(hidden)]
+    pub fn force_next_sync_to_fail_for_test(&mut self) {
+        self.store.force_next_sync_to_fail_for_test();
+    }
+
     /// Successful `fsync` calls made by the underlying store.
     pub fn sync_count(&self) -> u64 {
         self.store.sync_count()
@@ -78,6 +110,19 @@ impl Committer {
     /// Every member of a failed batch fails. There is no partial success: the
     /// batch shares one `fsync`, so either all of its bytes are durable or
     /// none of them are known to be.
+    ///
+    /// A `Write` or `Sync` error from `append_batch` may have left partial or
+    /// duplicate bytes on disk — `append_batch` leaves in-memory state
+    /// untouched on error, but the file's on-disk offset can still have
+    /// diverged from it. Appending a later batch on top of that would corrupt
+    /// the segment (a torn frame followed by more bytes fails the digest
+    /// check on reopen) or duplicate a `step_index` (fails the chain check on
+    /// reopen), either of which can make already-durable, already-acked
+    /// records unreadable. So a `Write`/`Sync` failure latches this committer
+    /// `unavailable`: every batch after it is refused rather than appended
+    /// onto a file whose state might not match what `Store` believes it
+    /// wrote. A `RecordError` (canonicalization) does not write any bytes and
+    /// does not latch.
     ///
     /// **This is the only place an `Ack` is constructed in this crate.** The
     /// concurrent path in `CommitQueue` routes results from here back to
@@ -115,7 +160,18 @@ impl Committer {
                     })
                 })
                 .collect(),
-            Err(e) => vec![Err(CommitError::NotDurable { why: e.to_string() }); n],
+            Err(e) => {
+                // A `Write` or `Sync` error may have left bytes on disk that
+                // `Store`'s in-memory state does not know about. Appending
+                // more batches on top of that offset is how already-durable
+                // records get corrupted; see the doc comment above. Anything
+                // else (only `RecordError` reaches here) never touched the
+                // file, so it does not latch.
+                if matches!(e, StoreError::Write(_) | StoreError::Sync(_)) {
+                    self.unavailable = true;
+                }
+                vec![Err(CommitError::NotDurable { why: e.to_string() }); n]
+            }
         }
     }
 

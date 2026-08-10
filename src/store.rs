@@ -47,6 +47,10 @@ pub struct Store {
     /// from; `bench` reports it so a claims/second figure can be checked
     /// against the number of times the disk was actually made to commit.
     syncs: u64,
+    /// Test-only: when set, the next `append_batch` writes its bytes for
+    /// real and then reports a `Sync` error instead of calling `sync_data`.
+    /// See `force_next_sync_to_fail_for_test`.
+    fail_next_sync: bool,
 }
 
 impl Store {
@@ -128,6 +132,7 @@ impl Store {
             records,
             head,
             syncs: 0,
+            fail_next_sync: false,
         })
     }
 
@@ -150,6 +155,22 @@ impl Store {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Test-only hook: make the *next* `append_batch` write its bytes for
+    /// real and then report a `Sync` error, instead of actually calling
+    /// `sync_data`. Not part of the serving API.
+    ///
+    /// This exists to reproduce, deterministically, the failure mode C7.1.3
+    /// exists to prevent: a write that lands on disk while the fsync that
+    /// would have made it durable does not complete. Real disk-full or I/O
+    /// errors are not reproducible on demand, so the bytes are written for
+    /// real here and only the sync outcome is substituted — the resulting
+    /// on-disk state (bytes present, `Store`'s in-memory `head`/`next_step`
+    /// not advanced) is the same either way.
+    #[doc(hidden)]
+    pub fn force_next_sync_to_fail_for_test(&mut self) {
+        self.fail_next_sync = true;
     }
 
     /// Write a batch and `fsync` **once** for the whole batch.
@@ -178,6 +199,12 @@ impl Store {
         }
 
         self.file.write_all(&buf).map_err(StoreError::Write)?;
+        if self.fail_next_sync {
+            self.fail_next_sync = false;
+            return Err(StoreError::Sync(std::io::Error::other(
+                "simulated sync failure for test",
+            )));
+        }
         self.file.sync_data().map_err(StoreError::Sync)?;
         self.syncs += 1;
 
