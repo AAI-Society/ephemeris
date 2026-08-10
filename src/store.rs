@@ -43,6 +43,10 @@ pub struct Store {
     path: PathBuf,
     records: Vec<Record>,
     head: [u8; 32],
+    /// Successful `fsync` calls. The physical quantity throughput follows
+    /// from; `bench` reports it so a claims/second figure can be checked
+    /// against the number of times the disk was actually made to commit.
+    syncs: u64,
 }
 
 impl Store {
@@ -123,6 +127,7 @@ impl Store {
             path,
             records,
             head,
+            syncs: 0,
         })
     }
 
@@ -136,6 +141,11 @@ impl Store {
 
     pub fn next_step(&self) -> u64 {
         self.records.len() as u64
+    }
+
+    /// Successful `fsync` calls since this `Store` was opened.
+    pub fn sync_count(&self) -> u64 {
+        self.syncs
     }
 
     pub fn path(&self) -> &Path {
@@ -169,6 +179,7 @@ impl Store {
 
         self.file.write_all(&buf).map_err(StoreError::Write)?;
         self.file.sync_data().map_err(StoreError::Sync)?;
+        self.syncs += 1;
 
         self.records.extend_from_slice(records);
         self.head = head;
