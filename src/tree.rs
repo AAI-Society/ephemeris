@@ -108,3 +108,158 @@ impl Tree {
         acc.unwrap_or(EMPTY_ROOT)
     }
 }
+
+/// RFC 6962 §2.1.1 PATH(m, D[n]).
+pub fn inclusion_proof(leaves: &[[u8; 32]], m: usize) -> Option<Vec<[u8; 32]>> {
+    if m >= leaves.len() {
+        return None;
+    }
+    Some(path(leaves, m))
+}
+
+fn path(leaves: &[[u8; 32]], m: usize) -> Vec<[u8; 32]> {
+    let n = leaves.len();
+    if n == 1 {
+        return Vec::new();
+    }
+    let k = largest_power_of_two_below(n);
+    if m < k {
+        let mut p = path(&leaves[..k], m);
+        p.push(root_of(&leaves[k..]));
+        p
+    } else {
+        let mut p = path(&leaves[k..], m - k);
+        p.push(root_of(&leaves[..k]));
+        p
+    }
+}
+
+/// Recompute the root from a leaf and its path, and compare. RFC 6962 §2.1.1.
+pub fn verify_inclusion(
+    leaf: [u8; 32],
+    m: u64,
+    size: u64,
+    proof: &[[u8; 32]],
+    root: [u8; 32],
+) -> bool {
+    if m >= size || size == 0 {
+        return false;
+    }
+    let mut hash = leaf;
+    let mut index = m;
+    let mut last = size - 1;
+    let mut it = proof.iter();
+    while last > 0 {
+        let Some(sibling) = it.next() else {
+            return false;
+        };
+        if index % 2 == 1 || index == last {
+            hash = node_hash(sibling, &hash);
+            // Walk up past any right-edge shortcut.
+            while index.is_multiple_of(2) && index > 0 {
+                index /= 2;
+                last /= 2;
+            }
+        } else {
+            hash = node_hash(&hash, sibling);
+        }
+        index /= 2;
+        last /= 2;
+    }
+    it.next().is_none() && hash == root
+}
+
+/// RFC 6962 §2.1.2 PROOF(m, D[n]).
+pub fn consistency_proof(leaves: &[[u8; 32]], m: usize) -> Option<Vec<[u8; 32]>> {
+    if m == 0 || m > leaves.len() {
+        return None;
+    }
+    Some(subproof(leaves, m, true))
+}
+
+fn subproof(leaves: &[[u8; 32]], m: usize, b: bool) -> Vec<[u8; 32]> {
+    let n = leaves.len();
+    if m == n {
+        return if b { Vec::new() } else { vec![root_of(leaves)] };
+    }
+    let k = largest_power_of_two_below(n);
+    if m <= k {
+        let mut p = subproof(&leaves[..k], m, b);
+        p.push(root_of(&leaves[k..]));
+        p
+    } else {
+        let mut p = subproof(&leaves[k..], m - k, false);
+        p.push(root_of(&leaves[..k]));
+        p
+    }
+}
+
+/// Verify that the tree of `new_size` leaves rooted at `new_root` is an
+/// append-only extension of the tree of `old_size` leaves rooted at
+/// `old_root`.
+///
+/// **This is the function that stops attack A9.** A rewritten-and-re-signed
+/// log is internally flawless and replays perfectly; the only thing that
+/// contradicts it is a root published before the rewrite, compared here.
+/// C7.3.5 exists because this specification's own reference implementation
+/// compared record counts instead, and accepted a rewritten history.
+pub fn verify_consistency(
+    old_size: u64,
+    old_root: [u8; 32],
+    new_size: u64,
+    new_root: [u8; 32],
+    proof: &[[u8; 32]],
+) -> bool {
+    if old_size == 0 || old_size > new_size {
+        return false;
+    }
+    if old_size == new_size {
+        return proof.is_empty() && old_root == new_root;
+    }
+
+    let mut node = old_size - 1;
+    let mut last = new_size - 1;
+    while node % 2 == 1 {
+        node /= 2;
+        last /= 2;
+    }
+
+    let mut it = proof.iter();
+    // A proof for a prefix that is itself a complete subtree omits that
+    // subtree's root, so it is seeded from `old_root`.
+    let (mut fr, mut sr) = if node > 0 {
+        let Some(first) = it.next() else {
+            return false;
+        };
+        (*first, *first)
+    } else {
+        (old_root, old_root)
+    };
+
+    while node > 0 {
+        if node % 2 == 1 {
+            let Some(sibling) = it.next() else {
+                return false;
+            };
+            fr = node_hash(sibling, &fr);
+            sr = node_hash(sibling, &sr);
+        } else if node < last {
+            let Some(sibling) = it.next() else {
+                return false;
+            };
+            sr = node_hash(&sr, sibling);
+        }
+        node /= 2;
+        last /= 2;
+    }
+
+    while last > 0 {
+        let Some(sibling) = it.next() else {
+            return false;
+        };
+        sr = node_hash(&sr, sibling);
+        last /= 2;
+    }
+
+    it.next().is_none() && fr == old_root && sr == new_root
+}
