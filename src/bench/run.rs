@@ -34,6 +34,9 @@ pub struct Latency {
     pub max_us: f64,
 }
 
+/// Batch statistics from `QueueStats`. This population is every claim the
+/// committer processed, including claims in a batch that ultimately failed
+/// to ack — i.e. it is sized by `submitted`, not by `claims`.
 #[derive(Clone, Debug, Serialize)]
 pub struct Batches {
     pub count: u64,
@@ -41,12 +44,34 @@ pub struct Batches {
     pub max_size: usize,
 }
 
+/// `RunReport` mixes two different populations, and each field below says
+/// which one it belongs to:
+///
+/// - `submitted` and `batches` cover every claim the harness attempted to
+///   submit, whether or not it was ever acked.
+/// - `claims`, `claims_per_sec`, and `latency` cover only claims whose
+///   `submit` call returned `Ok`.
+///
+/// The distinction is not cosmetic: `Committer` latches `unavailable` after
+/// any `Write`/`Sync` error and then refuses every later batch for the rest
+/// of the run, so a single transient fsync failure partway through a run can
+/// silently fail the back half of it. Without `submitted`/`failed` next to
+/// `claims`, a report from such a run reads as a smaller, but otherwise
+/// healthy, run — exactly the wrong failure mode to hide for a benchmark of
+/// a fail-closed evidence log.
 #[derive(Clone, Debug, Serialize)]
 pub struct RunReport {
     pub topology: String,
     pub agents: usize,
+    /// Claims attempted: `agents * claims_per_agent`, regardless of outcome.
+    pub submitted: usize,
+    /// Claims whose `submit` call returned `Ok`. Everything below this field
+    /// except `batches` and `fsyncs` is computed only over this population.
     pub claims: usize,
+    /// `submitted - claims`: claims whose `submit` call returned `Err`.
+    pub failed: usize,
     pub wall_secs: f64,
+    /// `claims / wall_secs` — successfully acked claims only.
     pub claims_per_sec: f64,
     pub latency: Latency,
     pub batches: Batches,
@@ -67,7 +92,7 @@ pub fn run(cfg: &RunConfig, dir: &Path) -> Result<RunReport, RunError> {
         let h = queue.handle();
         let per = cfg.claims_per_agent;
         threads.push(std::thread::spawn(move || {
-            let agent = format!("agent-{a}");
+            let agent = format!("agent-{a:05}");
             let mut samples = Vec::with_capacity(per);
             for i in 0..per {
                 let c = claim(&agent, i);
@@ -95,13 +120,18 @@ pub fn run(cfg: &RunConfig, dir: &Path) -> Result<RunReport, RunError> {
         stats.claims as f64 / stats.batches as f64
     };
 
+    let submitted = cfg.agents * cfg.claims_per_agent;
+    let claims = samples.len();
+
     Ok(RunReport {
         topology: cfg.topology.name().to_string(),
         agents: cfg.agents,
-        claims: samples.len(),
+        submitted,
+        claims,
+        failed: submitted.saturating_sub(claims),
         wall_secs: wall,
         claims_per_sec: if wall > 0.0 {
-            samples.len() as f64 / wall
+            claims as f64 / wall
         } else {
             0.0
         },
@@ -115,11 +145,22 @@ pub fn run(cfg: &RunConfig, dir: &Path) -> Result<RunReport, RunError> {
     })
 }
 
-/// The claim an agent submits. Every field is fixed except the identity ones,
-/// so the measurement is of the log rather than of varying record sizes.
+/// The claim an agent submits. Every field is fixed except the identity
+/// ones, and those are zero-padded to a fixed width (`{a:05}`, `{i:05}`) so
+/// every claim in the matrix serializes to the same byte length regardless
+/// of how far into a run it was submitted. Without the padding, `action_id`
+/// and `nonce` grow with the digit count of `a` and `i`, which would make
+/// later claims in a run — and runs with more agents — systematically
+/// larger, contaminating a throughput comparison across the agent sweep
+/// with a comparison of serialization size instead of concurrency.
+///
+/// `agent` is expected to already be in the padded `agent-NNNNN` form (see
+/// `run`, which builds it once per thread with `format!("agent-{a:05}")`).
+/// Five digits give headroom to 99,999 agents/claims, far beyond the
+/// matrix's 1000-agent, 20-claims-per-agent range.
 pub fn claim(agent: &str, i: usize) -> Claim {
     Claim {
-        action_id: format!("{agent}-{i}"),
+        action_id: format!("{agent}-{i:05}"),
         agent_id: agent.to_string(),
         initiating_user: "user:alice".into(),
         interception_point: "PRE_CALL_TOOL_INVOCATION".into(),
@@ -128,7 +169,7 @@ pub fn claim(agent: &str, i: usize) -> Claim {
         path_summary_hash: None,
         policy_bundle_hash: "a7713be5".into(),
         verdict: "ALLOW".into(),
-        nonce: format!("n-{agent}-{i}"),
+        nonce: format!("n-{agent}-{i:05}"),
     }
 }
 
