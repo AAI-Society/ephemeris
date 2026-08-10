@@ -2,3 +2,4 @@
 
 pub mod chain;
 pub mod record;
+pub mod tree;
