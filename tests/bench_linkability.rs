@@ -64,3 +64,50 @@ fn an_empty_fleet_is_refused_rather_than_reported_as_perfect_anonymity() {
     // measurement. It is an absence.
     assert!(measure(TopologyKind::Global, &[]).is_err());
 }
+
+#[test]
+fn an_idle_agent_is_filtered_rather_than_treated_as_an_error() {
+    // A mixed fleet: some agents acted, one did not. An agent with zero
+    // actions during the measured window is normal, not a fault, so it must
+    // not turn the whole measurement into an error, and it must not be
+    // counted among the agents that contributed.
+    let f = vec![
+        ("busy".to_string(), 50),
+        ("idle".to_string(), 0),
+        ("also-busy".to_string(), 50),
+    ];
+    let r = measure(TopologyKind::Global, &f).unwrap();
+    assert_eq!(r.actions, 100, "the idle agent's zero actions add nothing");
+    assert_eq!(
+        r.agents, 2,
+        "the idle agent must not be counted among contributing agents"
+    );
+}
+
+#[test]
+fn no_error_message_measure_can_produce_leaks_occultation_vocabulary() {
+    // occultation::anonymity's errors speak of fleets, hosts and TCB
+    // attributes -- exactly the vocabulary this module exists to keep out of
+    // anything ephemeris-facing, error text included. Exercise every path
+    // `measure` can actually take to an `Err` and check the rendered message
+    // against occultation's words.
+    let forbidden = ["host", "fleet", "tcb"];
+    let messages = [
+        // Fully empty input.
+        measure(TopologyKind::Global, &[]).unwrap_err().to_string(),
+        // Every named agent is idle -- the all-zero case, distinct from the
+        // fully-empty one but the other input that must still be refused.
+        measure(TopologyKind::Global, &[("idle".to_string(), 0)])
+            .unwrap_err()
+            .to_string(),
+    ];
+    for msg in messages {
+        let lower = msg.to_lowercase();
+        for word in forbidden {
+            assert!(
+                !lower.contains(word),
+                "error message `{msg}` must not contain occultation vocabulary `{word}`"
+            );
+        }
+    }
+}
