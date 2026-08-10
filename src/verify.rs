@@ -52,7 +52,10 @@ pub fn against_root(records: &[Record], prior: Option<PriorRoot>) -> Result<Acce
 
     if let Some(p) = prior {
         if p.size > size {
-            return Err(VerifyError::PriorLarger { prior_size: p.size, size });
+            return Err(VerifyError::PriorLarger {
+                prior_size: p.size,
+                size,
+            });
         }
         let proof = consistency_proof(&leaves, p.size as usize)
             .ok_or(VerifyError::Inconsistent { prior_size: p.size })?;

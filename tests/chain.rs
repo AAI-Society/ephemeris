@@ -59,7 +59,10 @@ fn a_gap_in_step_index_is_detected() {
     rs.remove(3);
     assert!(matches!(
         verify_sequence(&rs),
-        Err(ChainError::StepGap { expected: 3, found: 4 })
+        Err(ChainError::StepGap {
+            expected: 3,
+            found: 4
+        })
     ));
 }
 

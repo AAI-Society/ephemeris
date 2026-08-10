@@ -41,7 +41,12 @@ fn incremental_append_agrees_with_recomputation_at_every_size() {
     for (i, l) in ls.iter().enumerate() {
         t.append(*l);
         assert_eq!(t.size(), (i + 1) as u64);
-        assert_eq!(t.root(), root_of(&ls[..=i]), "root diverged at size {}", i + 1);
+        assert_eq!(
+            t.root(),
+            root_of(&ls[..=i]),
+            "root diverged at size {}",
+            i + 1
+        );
     }
 }
 

@@ -31,7 +31,12 @@ fn records_survive_a_reopen() {
     {
         let mut s = Store::open(&d).unwrap();
         for i in 0..5u64 {
-            let r = Record::new(claim(&format!("a-{i}")), s.next_step(), s.head(), 1_700_000_000 + i);
+            let r = Record::new(
+                claim(&format!("a-{i}")),
+                s.next_step(),
+                s.head(),
+                1_700_000_000 + i,
+            );
             s.append_batch(&[r]).unwrap();
         }
         assert_eq!(s.records().len(), 5);
@@ -47,18 +52,30 @@ fn a_torn_write_is_truncated_not_accepted() {
     {
         let mut s = Store::open(&d).unwrap();
         for i in 0..3u64 {
-            let r = Record::new(claim(&format!("a-{i}")), s.next_step(), s.head(), 1_700_000_000 + i);
+            let r = Record::new(
+                claim(&format!("a-{i}")),
+                s.next_step(),
+                s.head(),
+                1_700_000_000 + i,
+            );
             s.append_batch(&[r]).unwrap();
         }
     }
     // Simulate a process death mid-write: a length header and a few bytes.
-    let mut f = OpenOptions::new().append(true).open(d.join("segment-0.log")).unwrap();
+    let mut f = OpenOptions::new()
+        .append(true)
+        .open(d.join("segment-0.log"))
+        .unwrap();
     f.write_all(&[0, 0, 4, 0]).unwrap();
     f.write_all(b"{\"cl").unwrap();
     drop(f);
 
     let s = Store::open(&d).unwrap();
-    assert_eq!(s.records().len(), 3, "the torn record must not be recovered");
+    assert_eq!(
+        s.records().len(),
+        3,
+        "the torn record must not be recovered"
+    );
     assert_eq!(s.next_step(), 3);
 }
 
@@ -72,7 +89,12 @@ fn a_corrupted_complete_record_is_refused_not_skipped() {
     {
         let mut s = Store::open(&d).unwrap();
         for i in 0..3u64 {
-            let r = Record::new(claim(&format!("a-{i}")), s.next_step(), s.head(), 1_700_000_000 + i);
+            let r = Record::new(
+                claim(&format!("a-{i}")),
+                s.next_step(),
+                s.head(),
+                1_700_000_000 + i,
+            );
             s.append_batch(&[r]).unwrap();
         }
     }

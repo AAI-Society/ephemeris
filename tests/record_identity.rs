@@ -63,16 +63,46 @@ fn every_claim_field_contributes_to_the_digest() {
     type Mutator = (&'static str, Box<dyn Fn(&mut Claim)>);
 
     let mutators: Vec<Mutator> = vec![
-        ("action_id", Box::new(|c: &mut Claim| c.action_id = "a-2".into())),
-        ("agent_id", Box::new(|c: &mut Claim| c.agent_id = "did:web:other".into())),
-        ("initiating_user", Box::new(|c: &mut Claim| c.initiating_user = "user:bob".into())),
-        ("interception_point", Box::new(|c: &mut Claim| c.interception_point = "TASK_COMPLETION".into())),
-        ("target_resource", Box::new(|c: &mut Claim| c.target_resource = "/v1/refunds".into())),
-        ("canonical_snapshot_hash", Box::new(|c: &mut Claim| c.canonical_snapshot_hash = "deadbeef".into())),
-        ("path_summary_hash", Box::new(|c: &mut Claim| c.path_summary_hash = Some("cafe".into()))),
-        ("policy_bundle_hash", Box::new(|c: &mut Claim| c.policy_bundle_hash = "feedface".into())),
-        ("verdict", Box::new(|c: &mut Claim| c.verdict = "DENY".into())),
-        ("nonce", Box::new(|c: &mut Claim| c.nonce = "n-other".into())),
+        (
+            "action_id",
+            Box::new(|c: &mut Claim| c.action_id = "a-2".into()),
+        ),
+        (
+            "agent_id",
+            Box::new(|c: &mut Claim| c.agent_id = "did:web:other".into()),
+        ),
+        (
+            "initiating_user",
+            Box::new(|c: &mut Claim| c.initiating_user = "user:bob".into()),
+        ),
+        (
+            "interception_point",
+            Box::new(|c: &mut Claim| c.interception_point = "TASK_COMPLETION".into()),
+        ),
+        (
+            "target_resource",
+            Box::new(|c: &mut Claim| c.target_resource = "/v1/refunds".into()),
+        ),
+        (
+            "canonical_snapshot_hash",
+            Box::new(|c: &mut Claim| c.canonical_snapshot_hash = "deadbeef".into()),
+        ),
+        (
+            "path_summary_hash",
+            Box::new(|c: &mut Claim| c.path_summary_hash = Some("cafe".into())),
+        ),
+        (
+            "policy_bundle_hash",
+            Box::new(|c: &mut Claim| c.policy_bundle_hash = "feedface".into()),
+        ),
+        (
+            "verdict",
+            Box::new(|c: &mut Claim| c.verdict = "DENY".into()),
+        ),
+        (
+            "nonce",
+            Box::new(|c: &mut Claim| c.nonce = "n-other".into()),
+        ),
     ];
 
     for (name, mutate) in mutators {
@@ -90,9 +120,18 @@ fn every_claim_field_contributes_to_the_digest() {
 #[test]
 fn log_supplied_fields_also_contribute() {
     let base_digest = digest(&record()).unwrap();
-    assert_ne!(digest(&Record::new(claim(), 1, [0u8; 32], 1_700_000_000)).unwrap(), base_digest);
-    assert_ne!(digest(&Record::new(claim(), 0, [1u8; 32], 1_700_000_000)).unwrap(), base_digest);
-    assert_ne!(digest(&Record::new(claim(), 0, [0u8; 32], 1_700_000_001)).unwrap(), base_digest);
+    assert_ne!(
+        digest(&Record::new(claim(), 1, [0u8; 32], 1_700_000_000)).unwrap(),
+        base_digest
+    );
+    assert_ne!(
+        digest(&Record::new(claim(), 0, [1u8; 32], 1_700_000_000)).unwrap(),
+        base_digest
+    );
+    assert_ne!(
+        digest(&Record::new(claim(), 0, [0u8; 32], 1_700_000_001)).unwrap(),
+        base_digest
+    );
 }
 
 #[test]

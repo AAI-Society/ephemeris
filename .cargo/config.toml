@@ -1,0 +1,26 @@
+# ephemeris depends on one git repository (transit; see Cargo.toml) that is a
+# PRIVATE sibling repo in this org — NOT public.
+#
+# cargo's built-in libgit2 transport fails to authenticate against it with:
+#
+#   error: failed to authenticate when downloading repository
+#   * attempted to find username/password via git's `credential.helper` support,
+#     but failed
+#   if the git CLI succeeds then `net.git-fetch-with-cli` may help here
+#
+# That is cargo's own suggested fix, and it works: shelling out to the system
+# `git` binary instead of libgit2 fetches it cleanly. Without this, a cold
+# cache — exactly what a fresh CI runner has — fails `cargo build`/`cargo test`
+# on the very first run, with no local warm cache to mask the problem.
+#
+# This line is ALSO load-bearing for a second, separate reason: CI's
+# `url."https://x-access-token:...".insteadOf "https://github.com/"` rewrite
+# (see .github/workflows/ci.yml) is honored by git's own URL-rewriting
+# machinery, which only the CLI transport (`git-fetch-with-cli = true`)
+# invokes — cargo's default libgit2 transport ignores `insteadOf` entirely.
+# Deleting this line would therefore silently break CI's authentication fix
+# too, not only the local cold-cache case, and nothing would flag it until the
+# next cold-cache CI run failed with the opaque "could not read Username"
+# error that fix exists to prevent.
+[net]
+git-fetch-with-cli = true

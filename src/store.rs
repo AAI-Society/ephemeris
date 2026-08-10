@@ -12,7 +12,10 @@ const DIGEST_BYTES: usize = 32;
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error("could not open the log at {path}: {source}")]
-    Open { path: String, source: std::io::Error },
+    Open {
+        path: String,
+        source: std::io::Error,
+    },
     #[error("could not write to the log: {0}")]
     Write(std::io::Error),
     #[error("could not flush the log to disk: {0}")]
@@ -115,7 +118,12 @@ impl Store {
         }
         file.seek(SeekFrom::End(0)).map_err(StoreError::Write)?;
 
-        Ok(Self { file, path, records, head })
+        Ok(Self {
+            file,
+            path,
+            records,
+            head,
+        })
     }
 
     pub fn records(&self) -> &[Record] {

@@ -1,0 +1,72 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # The `transit` git dependency lives in a private sibling repo, and a
+      # workflow's default GITHUB_TOKEN is scoped to THIS repository only, so
+      # it cannot read it. This needs a token with read access to the org's
+      # repos, stored as the DEPS_READ_TOKEN secret.
+      #
+      # The insteadOf rewrite below only takes effect because
+      # .cargo/config.toml sets `net.git-fetch-with-cli = true` — cargo's
+      # default libgit2 transport ignores git's url.*.insteadOf rewriting
+      # entirely, so it would silently keep trying the unauthenticated
+      # https://github.com/... URL and fail with the opaque "could not read
+      # Username" error this step exists to prevent. That coupling is
+      # load-bearing: deleting `git-fetch-with-cli = true` from
+      # .cargo/config.toml silently breaks this authentication fix, and
+      # nothing here would catch it happening.
+      - name: authenticate to the private dependency repo
+        env:
+          DEPS_READ_TOKEN: ${{ secrets.DEPS_READ_TOKEN }}
+        run: |
+          if [ -z "${DEPS_READ_TOKEN}" ]; then
+            echo "::error::DEPS_READ_TOKEN is not set. ephemeris depends on the"
+            echo "::error::PRIVATE transit repo and the default GITHUB_TOKEN"
+            echo "::error::cannot read it. Create a fine-grained PAT with read"
+            echo "::error::access to the org's repos and add it as the"
+            echo "::error::DEPS_READ_TOKEN repository secret."
+            exit 1
+          fi
+          git config --global \
+            url."https://x-access-token:${DEPS_READ_TOKEN}@github.com/".insteadOf \
+            "https://github.com/"
+
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --all-targets
+
+      # Phase 1's central claim, run end to end against the built binary
+      # rather than only in-process: a log that rewrites a past record and
+      # relinks the chain is internally perfect, and must still fail against a
+      # root published before the rewrite. If `verify` ever exits 0 here, the
+      # A9 defence has regressed no matter what the unit tests say.
+      - name: a rewritten log fails against a prior root
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="$(mktemp -d)"
+          cat > "$dir/claim.json" <<'JSON'
+          {"action_id":"a-0","agent_id":"did:web:x","initiating_user":"user:alice",
+           "interception_point":"PRE_CALL_TOOL_INVOCATION","target_resource":"/v1/charges",
+           "canonical_snapshot_hash":"54c323d3","policy_bundle_hash":"a7713be5",
+           "verdict":"ALLOW","nonce":"n-0"}
+          JSON
+          cargo run --quiet -- append --dir "$dir" --claim "$dir/claim.json" --now 1700000000
+          cargo run --quiet -- root --dir "$dir" | tee "$dir/root.txt"
+          grep -q 'C7.3.3' "$dir/root.txt" \
+            || { echo "::error::a published root did not print what it fails to defend"; exit 1; }
+          set +e
+          cargo run --quiet -- verify --dir "$dir" \
+            --prior-size 1 --prior-root "$(printf 'aa%.0s' $(seq 32))"
+          code=$?
+          set -e
+          [ "$code" -eq 1 ] \
+            || { echo "::error::verify exited $code against a contradicting prior root, expected 1"; exit 1; }

@@ -25,8 +25,17 @@ fn build(n: u64, tamper_at: Option<u64>) -> Vec<Record> {
     let mut out = Vec::new();
     let mut head = GENESIS;
     for i in 0..n {
-        let verdict = if Some(i) == tamper_at { "DENY" } else { "ALLOW" };
-        let r = Record::new(claim(&format!("a-{i}"), verdict), i, head, 1_700_000_000 + i);
+        let verdict = if Some(i) == tamper_at {
+            "DENY"
+        } else {
+            "ALLOW"
+        };
+        let r = Record::new(
+            claim(&format!("a-{i}"), verdict),
+            i,
+            head,
+            1_700_000_000 + i,
+        );
         head = extend(head, &r).unwrap();
         out.push(r);
     }
@@ -61,7 +70,10 @@ fn without_a_prior_root_the_rewrite_is_accepted() {
 #[test]
 fn against_a_prior_root_the_rewrite_is_rejected() {
     let honest = build(8, None);
-    let published = PriorRoot { size: 8, root: root(&honest) };
+    let published = PriorRoot {
+        size: 8,
+        root: root(&honest),
+    };
 
     let mut tampered = build(8, Some(3));
     tampered.extend(build(12, Some(3)).into_iter().skip(8));
@@ -77,7 +89,10 @@ fn an_honest_extension_is_accepted_against_the_same_prior_root() {
     // The negative control. Without it, a verifier that rejected everything
     // would pass the test above.
     let honest8 = build(8, None);
-    let published = PriorRoot { size: 8, root: root(&honest8) };
+    let published = PriorRoot {
+        size: 8,
+        root: root(&honest8),
+    };
     let honest12 = build(12, None);
     assert!(against_root(&honest12, Some(published)).is_ok());
 }

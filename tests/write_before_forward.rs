@@ -40,8 +40,14 @@ fn a_batch_is_acked_only_after_it_is_durable() {
 fn acks_carry_contiguous_step_indices_in_submission_order() {
     let d = tempfile::tempdir().unwrap();
     let mut c = Committer::new(Store::open(d.path()).unwrap());
-    let acks = c.submit(vec![claim("a-0"), claim("a-1"), claim("a-2")], 1_700_000_000);
-    let steps: Vec<u64> = acks.iter().map(|a| a.as_ref().unwrap().step_index).collect();
+    let acks = c.submit(
+        vec![claim("a-0"), claim("a-1"), claim("a-2")],
+        1_700_000_000,
+    );
+    let steps: Vec<u64> = acks
+        .iter()
+        .map(|a| a.as_ref().unwrap().step_index)
+        .collect();
     assert_eq!(steps, vec![0, 1, 2]);
 }
 

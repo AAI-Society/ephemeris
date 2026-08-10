@@ -39,7 +39,11 @@ fn proof_size_is_logarithmic_not_linear() {
     // C7.3.4's auditor evidence asks for exactly this check.
     let ls = leaves(1024);
     let p = inclusion_proof(&ls, 500).unwrap();
-    assert!(p.len() <= 10, "proof of {} elements for 1024 leaves", p.len());
+    assert!(
+        p.len() <= 10,
+        "proof of {} elements for 1024 leaves",
+        p.len()
+    );
 }
 
 #[test]
