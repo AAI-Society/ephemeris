@@ -30,6 +30,17 @@ rand_chacha = "0.3"
 rand_core = "0.6"
 
 transit = { git = "https://github.com/Task-force-for-AI-agents-in-Healthcare/transit.git", rev = "3e10e13" }
+occultation = { git = "https://github.com/Task-force-for-AI-agents-in-Healthcare/occultation.git", rev = "3f50bdd", optional = true }
+
+[features]
+# `bench` pulls occultation, which pulls blstrs and the BLS12-381 stack. The
+# default build and the whole default test suite stay free of it.
+bench = ["dep:occultation"]
+
+[[bin]]
+name = "ephemeris-bench"
+path = "src/bin/ephemeris-bench.rs"
+required-features = ["bench"]
 
 [dev-dependencies]
 tempfile = "3"
