@@ -27,3 +27,6 @@ hex = "0.4"
 humantime = "2"
 
 transit = { git = "https://github.com/Task-force-for-AI-agents-in-Healthcare/transit.git", rev = "3e10e13" }
+
+[dev-dependencies]
+tempfile = "3"
