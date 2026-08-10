@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="ephemeris">
+  <title>ephemeris</title>
+  <desc>Positions tabulated at successive epochs, with the earliest one ringed — the only entry that can contradict a later claim, because it was written down before the claim was made.</desc>
+
+  <rect width="256" height="256" rx="52" fill="#0A0A0A"/>
+
+  <!-- the epoch axis: the tabulated times, evenly ruled -->
+  <line x1="52" y1="196" x2="204" y2="196" stroke="#CFFF04" stroke-width="5" stroke-linecap="round" opacity="0.32"/>
+  <g stroke="#CFFF04" stroke-width="4" stroke-linecap="round" opacity="0.32">
+    <line x1="62" y1="196" x2="62" y2="208"/>
+    <line x1="97" y1="196" x2="97" y2="208"/>
+    <line x1="132" y1="196" x2="132" y2="208"/>
+    <line x1="167" y1="196" x2="167" y2="208"/>
+    <line x1="202" y1="196" x2="202" y2="208"/>
+  </g>
+
+  <!-- the chain: each entry links to the one before it. It starts at the
+       ring's edge, not its centre, so the published prior reads as a distinct
+       entry the chain extends from rather than a hole in the line. -->
+  <path d="M78 142 L97 130 L132 112 L167 84 L202 62"
+        fill="none" stroke="#CFFF04" stroke-width="7"
+        stroke-linejoin="round" stroke-linecap="round"/>
+
+  <!-- the entries: a position recorded at each epoch -->
+  <circle cx="97" cy="130" r="9" fill="#CFFF04"/>
+  <circle cx="132" cy="112" r="9" fill="#CFFF04"/>
+  <circle cx="167" cy="84" r="9" fill="#CFFF04"/>
+  <circle cx="202" cy="62" r="9" fill="#CFFF04"/>
+
+  <!-- the published prior: ringed, because it left the operator's hands -->
+  <circle cx="62" cy="152" r="18" fill="none" stroke="#CFFF04" stroke-width="7"/>
+</svg>
