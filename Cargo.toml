@@ -1,0 +1,29 @@
+[package]
+name = "ephemeris"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+license = "Apache-2.0"
+description = "An append-only evidence log for Proof-of-Control records"
+repository = "https://github.com/Task-force-for-AI-agents-in-Healthcare/ephemeris"
+
+[lib]
+name = "ephemeris"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ephemeris"
+path = "src/bin/ephemeris.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
+anyhow = "1"
+sha2 = "0.10"
+hex = "0.4"
+humantime = "2"
+
+transit = { git = "https://github.com/Task-force-for-AI-agents-in-Healthcare/transit.git", rev = "3e10e13" }
