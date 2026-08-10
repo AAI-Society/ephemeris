@@ -25,6 +25,9 @@ anyhow = "1"
 sha2 = "0.10"
 hex = "0.4"
 humantime = "2"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand_chacha = "0.3"
+rand_core = "0.6"
 
 transit = { git = "https://github.com/Task-force-for-AI-agents-in-Healthcare/transit.git", rev = "3e10e13" }
 
