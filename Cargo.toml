@@ -68,7 +68,14 @@ bench = ["dep:occultation", "dep:tempfile"]
 # key and cannot claim hardware custody. Note that, as with `bench`, cargo
 # resolves optional dependencies regardless of features, so the parallax source
 # must be fetchable for any build even though nothing from it compiles.
-tee = ["dep:parallax"]
+#
+# `parallax/attest` is required alongside `dep:parallax`: parallax gates its
+# own `attest` module (which is where `tsm::request_quote` lives) behind an
+# `attest` feature of its own, off by default there for the same reason ours
+# is off by default here — it pulls rcgen and the TLS stack. Without
+# forwarding it, `parallax::attest` does not exist and `src/tee.rs` fails to
+# compile under `--features tee`.
+tee = ["dep:parallax", "parallax/attest"]
 
 [[bin]]
 name = "ephemeris-bench"

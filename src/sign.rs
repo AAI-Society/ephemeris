@@ -42,6 +42,18 @@ impl Custody {
             Custody::Tee => "TEE",
         }
     }
+
+    /// The only constructor for hardware custody, and it exists only when the
+    /// `tee` feature is on.
+    ///
+    /// `Custody` derives `Clone, Copy, PartialEq, Eq` and nothing else — no
+    /// `Default`, no `Deserialize`, no `From` — so a default build has no
+    /// expression that yields this variant. That is the same discipline that
+    /// keeps `Ack` unforgeable in `commit.rs`.
+    #[cfg(feature = "tee")]
+    pub(crate) fn tee() -> Custody {
+        Custody::Tee
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -108,7 +120,7 @@ impl SoftwareSigner {
 /// root alone would let a valid root be presented at a different claimed
 /// size, and a verifier comparing sizes rather than roots is exactly the
 /// defect C7.3.5 was written about.
-fn signing_bytes(root: &[u8; 32], size: u64) -> Vec<u8> {
+pub(crate) fn signing_bytes(root: &[u8; 32], size: u64) -> Vec<u8> {
     let mut v = Vec::with_capacity(8 + 8 + 32);
     v.extend_from_slice(b"eph-root");
     v.extend_from_slice(&size.to_be_bytes());
