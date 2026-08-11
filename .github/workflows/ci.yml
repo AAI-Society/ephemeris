@@ -9,10 +9,11 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      # The `transit` git dependency lives in a private sibling repo, and a
+      # The `transit` and `occultation` git dependencies (the latter only
+      # under the `bench` feature) live in private sibling repos, and a
       # workflow's default GITHUB_TOKEN is scoped to THIS repository only, so
-      # it cannot read it. This needs a token with read access to the org's
-      # repos, stored as the DEPS_READ_TOKEN secret.
+      # it cannot read either of them. This needs a token with read access to
+      # the org's repos, stored as the DEPS_READ_TOKEN secret.
       #
       # The insteadOf rewrite below only takes effect because
       # .cargo/config.toml sets `net.git-fetch-with-cli = true` — cargo's
@@ -23,16 +24,21 @@ jobs:
       # load-bearing: deleting `git-fetch-with-cli = true` from
       # .cargo/config.toml silently breaks this authentication fix, and
       # nothing here would catch it happening.
-      - name: authenticate to the private dependency repo
+      #
+      # The rewrite is wholesale (it targets all of https://github.com/, not
+      # one repo), so one token and one step already cover both private
+      # dependencies — adding occultation needed no new auth step here.
+      - name: authenticate to the private dependency repos
         env:
           DEPS_READ_TOKEN: ${{ secrets.DEPS_READ_TOKEN }}
         run: |
           if [ -z "${DEPS_READ_TOKEN}" ]; then
             echo "::error::DEPS_READ_TOKEN is not set. ephemeris depends on the"
-            echo "::error::PRIVATE transit repo and the default GITHUB_TOKEN"
-            echo "::error::cannot read it. Create a fine-grained PAT with read"
-            echo "::error::access to the org's repos and add it as the"
-            echo "::error::DEPS_READ_TOKEN repository secret."
+            echo "::error::PRIVATE transit and occultation repos and the"
+            echo "::error::default GITHUB_TOKEN cannot read them. Create a"
+            echo "::error::fine-grained PAT with read access to the org's"
+            echo "::error::repos and add it as the DEPS_READ_TOKEN repository"
+            echo "::error::secret."
             exit 1
           fi
           git config --global \
@@ -42,6 +48,43 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --all-targets
+
+      # Feature-gated code that CI does not build stops compiling quietly.
+      # `bench` pulls occultation (see the comment on the auth step above for
+      # why that needs no new CI step) and the whole BLS12-381 stack behind
+      # it, so it is checked separately from the default build/test above.
+      - run: cargo clippy --all-targets --features bench -- -D warnings
+      - run: cargo test --features bench
+
+      # A benchmark that cannot run is not a benchmark. This asserts the
+      # harness produces a well-formed result for every topology; it asserts
+      # NO threshold, because a performance assertion on a shared runner is a
+      # test of that runner's hardware and will flake.
+      #
+      # The shape check uses jq rather than an inline Python heredoc: a
+      # heredoc nested inside this bash `run:` block, itself nested inside
+      # YAML, is exactly the kind of indentation-sensitive construct that
+      # breaks silently on reformatting, and jq is already present on
+      # GitHub's ubuntu-latest runners.
+      - name: the harness still produces a result for every topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(mktemp -d)"
+          cargo run --release --features bench --bin ephemeris-bench -- \
+            --out "$out" --agents 2 --claims-per-agent 10
+          for t in global per-agent joint; do
+            f="$out/$t.json"
+            [ -s "$f" ] || { echo "::error::no results file for $t"; exit 1; }
+            jq -e '
+              (.throughput | length > 0) and
+              (.linkability | length > 0) and
+              (.host.logical_cores > 0) and
+              ([.throughput[] | (.fsyncs > 0 and .claims > 0)] | all)
+            ' "$f" >/dev/null \
+              || { echo "::error::$f failed its shape check (empty throughput/linkability, a run with zero fsyncs or claims, or missing host provenance)"; exit 1; }
+            echo "$f: ok"
+          done
 
       # Phase 1's central claim, run end to end against the built binary
       # rather than only in-process: a log that rewrites a past record and
