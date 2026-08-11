@@ -9,11 +9,12 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      # The `transit` and `occultation` git dependencies (the latter only
-      # under the `bench` feature) live in private sibling repos, and a
-      # workflow's default GITHUB_TOKEN is scoped to THIS repository only, so
-      # it cannot read either of them. This needs a token with read access to
-      # the org's repos, stored as the DEPS_READ_TOKEN secret.
+      # The `transit`, `occultation` and `parallax` git dependencies (the
+      # second only under the `bench` feature, the third only under `tee`)
+      # live in private sibling repos, and a workflow's default GITHUB_TOKEN
+      # is scoped to THIS repository only, so it cannot read any of them. This
+      # needs a token with read access to the org's repos, stored as the
+      # DEPS_READ_TOKEN secret.
       #
       # The insteadOf rewrite below only takes effect because
       # .cargo/config.toml sets `net.git-fetch-with-cli = true` — cargo's
@@ -26,16 +27,17 @@ jobs:
       # nothing here would catch it happening.
       #
       # The rewrite is wholesale (it targets all of https://github.com/, not
-      # one repo), so one token and one step already cover both private
-      # dependencies — adding occultation needed no new auth step here.
+      # one repo), so one token and one step already cover all three private
+      # dependencies — neither occultation nor parallax needed a new auth step
+      # here.
       - name: authenticate to the private dependency repos
         env:
           DEPS_READ_TOKEN: ${{ secrets.DEPS_READ_TOKEN }}
         run: |
           if [ -z "${DEPS_READ_TOKEN}" ]; then
             echo "::error::DEPS_READ_TOKEN is not set. ephemeris depends on the"
-            echo "::error::PRIVATE transit and occultation repos and the"
-            echo "::error::default GITHUB_TOKEN cannot read them. Create a"
+            echo "::error::PRIVATE transit, occultation and parallax repos and"
+            echo "::error::the default GITHUB_TOKEN cannot read them. Create a"
             echo "::error::fine-grained PAT with read access to the org's"
             echo "::error::repos and add it as the DEPS_READ_TOKEN repository"
             echo "::error::secret."
@@ -49,12 +51,30 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --all-targets
 
+      # `--all-targets` does NOT imply `--doc` — cargo excludes doctests from
+      # it. The `compile_fail` doctest on `SignedRoot::render` is the check
+      # that a forged hardware-custody literal does not compile, which is this
+      # branch's central safety property, and without this line it would run in
+      # CI only as a side effect of the feature steps below. If those were ever
+      # skipped or gated, the property would stop being checked silently.
+      - run: cargo test --doc
+
       # Feature-gated code that CI does not build stops compiling quietly.
       # `bench` pulls occultation (see the comment on the auth step above for
       # why that needs no new CI step) and the whole BLS12-381 stack behind
       # it, so it is checked separately from the default build/test above.
       - run: cargo clippy --all-targets --features bench -- -D warnings
       - run: cargo test --features bench
+
+      # The same argument for `tee`, which pulls parallax and its attest
+      # feature. What this gate proves is narrow and worth stating: that the
+      # hardware path still compiles and that its failure paths still fail the
+      # way the tests say. It proves nothing about a real TDX guest. This
+      # runner is not one, there is no configfs-tsm report directory on it,
+      # and `TeeSigner::generate` has never returned a quote anywhere. Do not
+      # read a green tick here as "attestation works".
+      - run: cargo clippy --all-targets --features tee -- -D warnings
+      - run: cargo test --features tee
 
       # A benchmark that cannot run is not a benchmark. This asserts the
       # harness produces a well-formed result for every topology; it asserts

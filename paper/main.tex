@@ -812,12 +812,29 @@ requirement is compatible with the action rates people want from agents is
 \emph{still} not something we can answer in general --- we can now say what one
 machine did, which is a different and much smaller claim.
 
-The signer is a software key, and we should be blunt that this means the whole
-system currently has no defence against its operator at all---the custody
-argument above is not mitigated by the signer, it is the reason the signer's
-weakness does not much matter yet. A key in a trusted execution environment
-would change who can produce a signature, not who can publish a root, so it
-narrows the attack without closing it.
+The default build signs with a software key, and we should be blunt that this
+means the whole system as shipped has no defence against its operator at
+all---the custody argument above is not mitigated by the signer, it is the
+reason the signer's weakness does not much matter yet. A key in a trusted
+execution environment is no longer future work in the implementation: there is
+now one behind a compile-time feature, written to bind the key to a quote
+through the hash of its entire \texttt{SubjectPublicKeyInfo} and to refuse to
+construct a signer at all if the platform will not produce that quote. We are not reporting
+that it works. It has never run inside a confidential-computing guest; only its
+failure paths are exercised, offline, and whether real attestation hardware
+accepts the \texttt{report\_data} we derive is unverified. The default build is
+unchanged, and cannot express hardware custody at all.
+
+None of that touches the attack. A key in a trusted execution environment
+changes who can produce a signature, not who can publish a root, so it narrows
+the attack without closing it---and the part it fails to close is the part this
+paper is about. An operator holding a hardware-bound key can still alter a past
+record, relink the chain, and re-sign the result; what comes out is a log that
+verifies internally, carries a valid signature, and now also carries a
+hardware-custody label. The A9 rewrite of Section~\ref{sec:problem} survives
+the hardware unchanged, and a reader who takes the presence of a signer that
+asks for hardware attestation for a defence against the operator has read it
+exactly backwards.
 
 Finally, on the finding in Section~\ref{sec:test}: we do not know how common
 it is. We found one instance, in our own code, by accident. The reason we

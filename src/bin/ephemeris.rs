@@ -47,9 +47,16 @@ enum Cmd {
     },
 }
 
-/// A fixed seed so Phase 1 output is reproducible. Phase 2 replaces this
-/// signer entirely with the TEE one; a persistent software key would imply a
-/// custody story this build does not have.
+/// A fixed seed so Phase 1 output is reproducible. A persistent software key
+/// would imply a custody story this build does not have.
+///
+/// **Do not carry this constant across to `TeeSigner`.** It is safe here only
+/// because a `SoftwareSigner` claims nothing: its roots render `SOFTWARE` and
+/// the rendering says so. `TeeSigner::generate` takes a seed of the same shape
+/// and expands it into a key the platform will attest — so swapping the signer
+/// on this line, and nothing else, would publish an attested key whose private
+/// half is a literal three lines above the call. See the seed warning on
+/// `TeeSigner::generate`.
 const DEV_SEED: [u8; 32] = [7u8; 32];
 
 fn main() -> ExitCode {
