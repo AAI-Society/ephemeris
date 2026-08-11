@@ -5,6 +5,8 @@ pub mod bench;
 pub mod chain;
 pub mod commit;
 pub mod record;
+#[cfg(feature = "serve")]
+pub mod serve;
 pub mod sign;
 pub mod store;
 #[cfg(feature = "tee")]

@@ -77,6 +77,12 @@ bench = ["dep:occultation", "dep:tempfile"]
 # compile under `--features tee`.
 tee = ["dep:parallax", "parallax/attest"]
 
+# `serve` needs no new dependency: the listener is std's UnixListener and a
+# minimal HTTP/1.1 reader. See the design's transport section for why this is
+# not hyper+tokio — the crate is blocking end to end, fsync is ~3.4ms, and the
+# measured ceiling is ~310 batches/sec set by durability rather than transport.
+serve = []
+
 [[bin]]
 name = "ephemeris-bench"
 path = "src/bin/ephemeris-bench.rs"
