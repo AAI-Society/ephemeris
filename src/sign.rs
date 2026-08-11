@@ -1,5 +1,25 @@
+use ed25519_dalek::pkcs8::EncodePublicKey;
 use ed25519_dalek::{Signer as _, SigningKey};
 use rand_core::SeedableRng;
+
+#[derive(Debug, thiserror::Error)]
+pub enum SignError {
+    #[error("could not encode the public key as a SubjectPublicKeyInfo: {0}")]
+    Spki(String),
+}
+
+/// The DER encoding of the key's entire `SubjectPublicKeyInfo`.
+///
+/// **Not the bare key bits.** `parallax`'s verifier hashes the whole SPKI —
+/// the `AlgorithmIdentifier` and the `subjectPublicKey` BIT STRING — and an
+/// attester that hashed `verifying_key().to_bytes()` instead would produce a
+/// `report_data` that never matches, failing only on real hardware against a
+/// real verifier. `tests/tee_binding.rs` pins the distinction.
+pub fn spki_der(key: &ed25519_dalek::VerifyingKey) -> Result<Vec<u8>, SignError> {
+    key.to_public_key_der()
+        .map(|d| d.as_bytes().to_vec())
+        .map_err(|e| SignError::Spki(e.to_string()))
+}
 
 /// Where the signing key lives. Set by the signer that produced a root, with
 /// no setter anywhere, so a software build cannot emit a root claiming
@@ -74,6 +94,11 @@ impl SoftwareSigner {
         Self {
             key: SigningKey::generate(&mut rng),
         }
+    }
+
+    /// The public half, for callers that need to derive a binding from it.
+    pub fn verifying_key(&self) -> ed25519_dalek::VerifyingKey {
+        self.key.verifying_key()
     }
 }
 
