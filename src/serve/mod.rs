@@ -114,10 +114,11 @@ impl Server {
                 Err(_) => continue,
             };
             let queue = Arc::clone(&self.queue);
+            let store_dir = self.store_dir.clone();
             // A read timeout bounds a client that connects and never sends;
             // otherwise one such client parks a thread forever.
             let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30)));
-            std::thread::spawn(move || routes::handle(&stream, &queue));
+            std::thread::spawn(move || routes::handle(&stream, &queue, &store_dir));
         }
         let _ = std::fs::remove_file(&self.path);
     }
