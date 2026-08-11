@@ -6,6 +6,13 @@ rust-version = "1.90"
 license = "Apache-2.0"
 description = "An append-only evidence log for Proof-of-Control records"
 repository = "https://github.com/Task-force-for-AI-agents-in-Healthcare/ephemeris"
+# Adding the `ephemeris-bench` target made `cargo run` ambiguous, which broke
+# the three `cargo run -- …` invocations in CI and every documented usage
+# example. `required-features` does not disambiguate: cargo counts the target
+# whether or not the feature is on. CI's `rust` job fails earlier, on the
+# missing DEPS_READ_TOKEN, so nothing caught this — a masked break is exactly
+# what a blocked pipeline hides.
+default-run = "ephemeris"
 
 [lib]
 name = "ephemeris"
