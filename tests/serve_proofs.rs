@@ -287,8 +287,17 @@ fn a_rewritten_and_relinked_log_still_fails_a_consistency_check_over_the_socket(
     // shape as tests/a9_rewrite.rs's own
     // `an_honest_extension_is_accepted_against_the_same_prior_root`.
     let mut honest_extended = honest.clone();
-    let head = hex32(&honest_extended[7].chain_head);
+    // `Record::chain_head` is the head going INTO that record, same as the
+    // tamper above — record 8 needs the head coming OUT of record 7, which
+    // is `extend(head_into_7, &record_7)`, not `record_7.chain_head` itself.
+    let head_into_7 = hex32(&honest_extended[7].chain_head);
+    let head = extend(head_into_7, &honest_extended[7]).expect("extend");
     extend_with(&mut honest_extended, head, 8, 12, "b-");
+    // The control is only a control if it is itself chain-valid — otherwise
+    // the assertion below would hold for a log the crate's own GET /root
+    // would reject with a 500, proving nothing about A9.
+    verify_sequence(&honest_extended)
+        .expect("the negative control's honest continuation must be chain-valid");
     let wednesday_dir = tempfile::tempdir().expect("tempdir");
     {
         let mut store = Store::open(wednesday_dir.path()).expect("store");

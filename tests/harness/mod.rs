@@ -38,6 +38,30 @@ impl TestServer {
         Self::start_with(store_dir, socket_path, None)
     }
 
+    /// A server with its connection cap and per-request deadline overridden,
+    /// instead of the production `MAX_CONNECTIONS`/`REQUEST_DEADLINE`. Exists
+    /// so those limits can be exercised without opening hundreds of real
+    /// connections or sleeping through a 30-second production deadline.
+    pub fn start_with_limits(
+        max_connections: usize,
+        request_deadline: std::time::Duration,
+    ) -> Self {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("eph.sock");
+        let store = Store::open(dir.path()).expect("store");
+        let queue = CommitQueue::new(Committer::new(store));
+        let mut server = Server::bind(&path, queue, dir.path()).expect("bind");
+        server.set_limits_for_test(max_connections, request_deadline);
+        let shutdown = server.shutdown_handle();
+        let worker = std::thread::spawn(move || server.serve_until_shutdown());
+        Self {
+            path,
+            _dir: Some(dir),
+            shutdown: Some(shutdown),
+            worker: Some(worker),
+        }
+    }
+
     fn start_with(store_dir: &Path, socket_path: &Path, dir: Option<tempfile::TempDir>) -> Self {
         let store = Store::open(store_dir).expect("store");
         let queue = CommitQueue::new(Committer::new(store));

@@ -7,14 +7,25 @@ use crate::tree::{consistency_proof, inclusion_proof, leaf_hash, root_of};
 use crate::verify::against_root;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
+use std::time::Duration;
 
 /// The same fixed seed the CLI uses, for the same reason: Phase 1 output is
 /// reproducible and the key is a labelled placeholder either way.
 const DEV_SEED: [u8; 32] = [7u8; 32];
 
 /// Dispatch one request. Never panics: every parse failure becomes a status.
-pub fn handle(stream: &UnixStream, queue: &CommitQueue, store_dir: &Path) {
-    let req = match read_request(stream) {
+///
+/// `request_deadline` bounds the WHOLE request over wall-clock time — see
+/// `http::read_request` — and is threaded through from `Server` rather than
+/// hardcoded here, so a test can shrink it without waiting on the
+/// production value.
+pub fn handle(
+    stream: &UnixStream,
+    queue: &CommitQueue,
+    store_dir: &Path,
+    request_deadline: Duration,
+) {
+    let req = match read_request(stream, request_deadline) {
         Ok(r) => r,
         Err(HttpError::BodyTooLarge { .. }) => {
             return write_response(
@@ -22,6 +33,22 @@ pub fn handle(stream: &UnixStream, queue: &CommitQueue, store_dir: &Path) {
                 413,
                 "Payload Too Large",
                 r#"{"error":"body too large"}"#,
+            )
+        }
+        Err(HttpError::HeadersTooLarge) => {
+            return write_response(
+                stream,
+                431,
+                "Request Header Fields Too Large",
+                r#"{"error":"request headers too large"}"#,
+            )
+        }
+        Err(HttpError::DeadlineExceeded) => {
+            return write_response(
+                stream,
+                408,
+                "Request Timeout",
+                r#"{"error":"the request did not complete within its deadline"}"#,
             )
         }
         Err(HttpError::Incomplete) => return,

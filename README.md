@@ -136,7 +136,7 @@ cargo run --example rewrite        # attack A9, end to end
 cargo test                         # 60 tests, all offline
 cargo test --features bench        # 70, including the harness's own tests
 cargo test --features tee          # 65, the TEE signer's failure paths only
-cargo test --features serve        # 75, the UDS listener, offline and unauthenticated
+cargo test --features serve        # 79, the UDS listener, offline and unauthenticated
 
 cargo run --release --features bench --bin ephemeris-bench   # regenerate results/
 ```
@@ -175,6 +175,12 @@ async runtime, no TLS. The default build does not include this: nothing
 above needs it, and every command shown so far talks to a log directory
 directly.
 
+**There is no CLI subcommand for this.** `Server::bind` and
+`serve_until_shutdown` are a library API (`ephemeris::serve`), not
+something `ephemeris` the binary exposes — the three commands above are
+still the whole CLI. Something outside this crate has to embed the listener
+to run it at all.
+
 ```
 POST /claims?now=<unix seconds>       submit one claim; blocks until durable
 GET  /root                            the same signed root and sentence `ephemeris root` prints
@@ -209,6 +215,15 @@ What this is not:
   been exercised by the enforcement point it is meant to serve, and the
   routes' shapes should be read accordingly — plausible, not proven, against
   a real caller.
+- **The bounds that exist are wide, not tuned.** Live connections are capped
+  at 256 (a `503` past that, not a queue); a request — line, headers, and
+  body together — is cut off after 30 seconds of wall-clock time even if a
+  client keeps sending, not just when it goes idle; a header line is capped
+  at 8 KiB and headers in total at 32 KiB, the same discipline `MAX_BODY`
+  already applied to the body. None of these numbers come from a measured
+  deployment — they were picked to sit far above one `transit guard`
+  process's expected concurrency and far below where the OS's own thread
+  limit starts failing, and that is the extent of the justification.
 
 ---
 
