@@ -4,7 +4,7 @@
 
 <p align="center">
   <img alt="Rust 2021" src="https://img.shields.io/badge/rust-2021%20%C2%B7%201.90%2B-CFFF04?style=flat-square&labelColor=0A0A0A">
-  <img alt="tests passing" src="https://img.shields.io/badge/tests-54%20passing-CFFF04?style=flat-square&labelColor=0A0A0A">
+  <img alt="tests passing" src="https://img.shields.io/badge/tests-60%20passing-CFFF04?style=flat-square&labelColor=0A0A0A">
   <img alt="Apache 2.0" src="https://img.shields.io/badge/licence-Apache--2.0-CFFF04?style=flat-square&labelColor=0A0A0A">
   <img alt="Phase 1 of 2 plus bench" src="https://img.shields.io/badge/build-phase%201%20of%202%20%2B%20bench-8F8A82?style=flat-square&labelColor=0A0A0A">
 </p>
@@ -132,8 +132,9 @@ We report this upstream rather than honour it.
 
 ```bash
 cargo run --example rewrite        # attack A9, end to end
-cargo test                         # 54 tests, all offline
-cargo test --features bench        # 61, including the harness's own tests
+cargo test                         # 60 tests, all offline
+cargo test --features bench        # 70, including the harness's own tests
+cargo test --features tee          # 65, the TEE signer's failure paths only
 
 cargo run --release --features bench --bin ephemeris-bench   # regenerate results/
 ```
@@ -176,11 +177,36 @@ record is truncated; a *complete* record whose trailing digest does not match
 its bytes is refused rather than skipped, because silently dropping evidence
 is the failure this tool exists to prevent.
 
-**A labelled placeholder.** The signer is a process-local software key. It
-provides integrity against anybody who is not the operator and **no defence
-against the operator**. `Custody::Tee` exists in the type and is constructed
-nowhere in this build, so a default build cannot emit a root claiming hardware
-custody. The TEE signer is Phase 2.
+**A labelled placeholder.** The default build signs with a process-local
+software key, exactly as it did before. It provides integrity against anybody
+who is not the operator and **no defence against the operator**. A default
+build cannot emit a root claiming hardware custody, and that is now a property
+of the type rather than of a convention: `Custody` is opaque over a private
+enum whose hardware variant is itself compiled out, so there is no expression
+anywhere — in this crate or downstream — that evaluates to hardware custody
+without the feature. A `compile_fail` doctest and an out-of-tree probe both
+check it.
+
+**Compiled, never run.** A TEE signer exists behind `--features tee`. It
+generates a key, derives `report_data` by calling `parallax`'s own
+`expected_report_data` over the whole `SubjectPublicKeyInfo` rather than
+reproducing the layout here, and refuses to exist at all if the platform will
+not produce a quote over it. What we can say is that this path compiles and
+that its *failure* modes are tested offline, against a caller-supplied report
+directory. What we cannot say is that it works: **nothing in this repository
+has ever run inside a TDX guest.** No quote has been produced, none has been
+verified, and whether a real platform accepts this `report_data` is
+**unverified**. Read `--features tee` as "the code path is there", not as
+"attestation is implemented".
+
+And it changes nothing about the paragraph below. **A TEE key changes who can
+sign. It does not change who publishes roots.** Attack A9 stands exactly where
+it stood before the feature existed, because the defence against A9 was never
+the signer — it was somebody outside the operator holding a copy of an earlier
+root. An operator with a TEE-held key can still rewrite history and re-sign it,
+and now the forged log carries a hardware-custody label. If the word "TEE"
+makes this project look more trustworthy against its operator, it has misled
+you.
 
 **Not defended.** C7.3.3 equivocation. No root is published outside the
 operator's control, so **attack A9 stands** — the demonstration at the top of
@@ -278,7 +304,7 @@ that rather than the proof code.
 | :-- | :-- | :-- |
 | ⚠️ | **`chain_head`** — defined as `H(previous_head ‖ canonical_snapshot_hash ‖ verdict)` | two record fields, not the record. `step_index`, `target_resource`, `policy_bundle_hash` and the identity fields are outside the chain and can be altered without breaking a link |
 | ⚠️ | **C7.3.5** — the reference implementation compares record counts | length is not evidence. A rewritten log has exactly the right length; the test asserting so is `a_step_count_comparison_alone_would_have_accepted_the_rewrite` |
-| ◻︎ | **C7.3.3 equivocation** — no external publication point is specified | until one exists, A9 stands against every deployment of this component, however well its proofs are implemented |
+| ◻︎ | **C7.3.3 equivocation** — no external publication point is specified | until one exists, A9 stands against every deployment of this component, however well its proofs are implemented and whatever hardware holds its key |
 | ◻︎ | **C7.1.3 fail-closed** — stated as a requirement, with no test methodology | the obvious fault injection does not inject the fault; see above |
 
 ⚠️ is a contradiction; ◻︎ is a gap this tool surfaces and does not close.
@@ -325,14 +351,16 @@ it works — which removes the property the comparison existed to provide.
 
 ## Building
 
-`transit` and `occultation` are **private** sibling repos in this org, and you
-need read access to **both**, even for a default build. `occultation` is only
-compiled under `--features bench`, but cargo resolves optional dependencies
-regardless of features, so its git source must be fetchable for any build —
-without it, a plain `cargo build` fails with ``failed to load source for
-dependency `occultation` ``. Compilation is feature-gated; resolution is not.
-Concretely: a contributor with access to `transit` but not `occultation` could
-build this crate before this branch and cannot after it.
+`transit`, `occultation` and `parallax` are **private** sibling repos in this
+org, and you need read access to **all three**, even for a default build.
+`occultation` is only compiled under `--features bench` and `parallax` only
+under `--features tee`, but cargo resolves optional dependencies regardless of
+features, so both git sources must be fetchable for any build — without either,
+a plain `cargo build` fails with ``failed to load source for dependency … ``,
+naming the one it could not reach. Compilation is feature-gated; resolution is
+not. Concretely:
+a contributor with access to `transit` alone could build this crate two
+branches ago and cannot now.
 
 `.cargo/config.toml` sets `net.git-fetch-with-cli = true`; do not delete it,
 for the reasons documented in that file.
@@ -346,17 +374,31 @@ cargo test
 # builds stops compiling quietly.
 cargo clippy --all-targets --features bench -- -D warnings
 cargo test --features bench
+
+# The tee feature, which CI also gates on. These two prove that the hardware
+# path compiles and that its failure paths still fail as tested. They prove
+# nothing about a TDX guest; there isn't one here.
+cargo clippy --all-targets --features tee -- -D warnings
+cargo test --features tee
 ```
 
-Everything runs offline: no network, no credentials, no TEE.
+Everything runs offline: no network, no credentials, no TEE. That last one is
+not a convenience — it is the reason the TEE signer's success path is
+unexercised. Only its failures are reachable from a machine like this.
 
 ---
 
 ## Phase 2, deliberately not here
 
 1. The UDS listener and its routes, so `transit guard` can write to it.
-2. The TEE signer behind a cargo feature, with `Custody::Tee` reachable only
-   from it, and a test that a default build cannot claim hardware custody.
+2. ~~The TEE signer behind a cargo feature, with hardware custody reachable
+   only from it, and a test that a default build cannot claim hardware
+   custody.~~ **Partly done.** The feature, the custody type and the tests
+   exist. What remains is the part that cannot be done offline: **running it
+   inside a real TDX guest**, obtaining an actual quote, and having parallax
+   verify the binding between that quote and this key. Until somebody does
+   that, `--features tee` is a code path with tested failure modes and an
+   unverified success path.
 3. The `poc-audit` cross-check, which needs a released tag of this repo.
 4. A throughput harness that actually builds the forest, so the topology axis
    can be measured rather than labelled — and a linkability metric that reads

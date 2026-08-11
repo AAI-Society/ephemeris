@@ -9,6 +9,12 @@ What We Got Wrong") reports the Phase 2 measurements, and §8 ("What We Still
 Don't Know") states what remains open after them — including the fact that the
 throughput half of the experiment never tested the topology axis at all.
 
+§8 now also reports that the implementation carries a TEE signer behind a
+compile-time feature. **That paragraph reports existence, not results.** No
+part of this work has run inside a confidential-computing guest; only the
+signer's failure paths are exercised, offline. Nothing was measured, and the
+section must not read as though anything was. See required step 5 below.
+
 **Prose style.** The expository register shared with the sibling papers: first
 person, concrete case before abstraction, ordinary words in place of jargon,
 and ignorance stated loudly rather than hedged. Specifically —
@@ -120,25 +126,41 @@ same commit.
    submission, the result replaces the hypothesis; absent that, the hedge
    stays.
 
-5. **Re-derive every figure in §7 against `../results/*.json`.** The tables are
+5. **The TEE signer in §8 has not been run on hardware.** The paper may say
+   the code path exists, that it binds the key to a quote through the whole
+   `SubjectPublicKeyInfo`, that it fails closed, and that its failure paths
+   are tested offline. It may **not** say the signer works, that attestation
+   is verified, that a quote was obtained, or that a platform accepted the
+   `report_data`. None of those has happened. If an edit before submission
+   introduces "we attest the signing key" or any sentence in which the TEE
+   path is described as verified, revert it — and if somebody does run it in
+   a real guest before submission, that is a new result needing its own
+   description of the platform, not a tense change.
+
+   The same paragraph must keep saying that a TEE key changes *who can sign*
+   and not *who publishes roots*, so attack A9 is untouched by it. This is the
+   sentence most likely to be lost in editing, because the arrival of hardware
+   custody reads like progress against the operator and is not.
+
+6. **Re-derive every figure in §7 against `../results/*.json`.** The tables are
    typed into the `.tex`, not generated, so they can drift from the JSON
    silently. Before submission, re-check each cell of Tables 1 and 2, the
    latency figures, the 0.21 ms / 22.9 ms residuals, the 937-in-flight Little's
    law figure, and the four noise-spread percentages. Numbers that cannot be
    re-derived from the committed JSON must be cut, not rounded.
 
-6. **Re-state the two things the numbers do not license.** §7 must still say
+7. **Re-state the two things the numbers do not license.** §7 must still say
    that the topology axis was untested and that joint-vs-per-agent linkability
    is a tautology. If an edit softens either into "topology made little
    difference" or "joint's anchoring was evaluated", revert it.
 
-7. **Repeat the run before submission, ideally on a second machine.** One host,
+8. **Repeat the run before submission, ideally on a second machine.** One host,
    one run per cell, with a self-reported noise floor of up to 30%, is thin for
    a published figure. Either add repetitions and a second platform (quoting
    its `sync_call` and `sync_us`), or keep §7's framing that these are one
    machine's numbers and not a benchmark.
 
-8. **arXiv metadata.** Suggested categories: cs.CR (primary), cs.DC and cs.SE
+9. **arXiv metadata.** Suggested categories: cs.CR (primary), cs.DC and cs.SE
    (secondary). Licence: Apache-2.0, matching the implementation.
 
 ## Files
