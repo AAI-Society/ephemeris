@@ -34,11 +34,24 @@ impl TeeSigner {
     /// demonstrate, which is precisely the claim this type exists to make
     /// checkable.
     pub fn generate(seed: [u8; 32]) -> Result<Self, TeeError> {
+        Self::generate_at(
+            std::path::Path::new(parallax::attest::tsm::TSM_REPORT_DIR),
+            seed,
+        )
+    }
+
+    /// [`TeeSigner::generate`], against a caller-supplied report directory.
+    ///
+    /// Split out for the same reason parallax split `request_quote_at`: the
+    /// real path is `/sys`, which no test can create, so the failure paths
+    /// would otherwise be untested — and the failure paths are where
+    /// fail-closed either holds or does not.
+    pub fn generate_at(base: &std::path::Path, seed: [u8; 32]) -> Result<Self, TeeError> {
         let mut rng = rand_chacha::ChaCha20Rng::from_seed(seed);
         let key = SigningKey::generate(&mut rng);
         let spki = spki_der(&key.verifying_key())?;
         let report_data = parallax::ratls::expected_report_data(&spki);
-        let quote = parallax::attest::tsm::request_quote(&report_data)
+        let quote = parallax::attest::tsm::request_quote_at(base, &report_data)
             .map_err(|e| TeeError::Quote(e.to_string()))?;
         Ok(Self { key, quote })
     }
