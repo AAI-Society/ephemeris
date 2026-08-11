@@ -200,18 +200,29 @@ tooling exists and a stub would be read as a measurement. See P04, P10, and
 **Measured, on one machine, once.** Phase 2's `bench` ran 1, 10, 100 and 1,000
 agents against each topology. The host was an Apple M5 Max, 18 logical cores,
 macOS, where `File::sync_data` is `F_FULLFSYNC` and costs a measured 3,438 µs.
-One run per cell, no warm-up, no repetitions. Everything below is in
+One run per cell, no warm-up, no repetitions. That framing covers the
+throughput and latency numbers below; the linkability numbers are a different
+kind of thing and the next paragraph says so. Everything below is in
 [`results/`](results/README.md), and **that file's "Outcome" section is the
 authoritative reading** — it lists caveats this summary compresses.
 
-*Linkability is the half we could measure, and it is where the objection
-lands.* A single
+*Linkability is the half we got an answer for — derived rather than timed,
+and it is where the objection lands.* The harness computes these figures from
+the agent count and the per-agent claim count alone, feeding them straight to
+the tree-assignment function; it never reads the throughput run's output. So
+they are a closed-form property of `ephemeris`, identical on any host and
+unchanged had the run acknowledged nothing — the opposite of the "one machine,
+once" caveat above, despite living in the same JSON files. A single
 global tree's effective anonymity set grows with the fleet: 20, 200, 2,000,
 20,000 actions at 1/10/100/1,000 agents, one tree, 0.00 bits of tree-identity
 entropy at every size. A tree per agent pins the effective anonymity set at
 **20.0 at every fleet size**, with entropy rising 0.00 → 3.32 → 6.64 → 9.97
 bits — exactly log₂(agents). So the gap between the two arrangements widens
-without bound as the fleet grows. Joint's figures equal per-agent's by
+without bound as the fleet grows. The flat 20.0 is the stipulated uniform
+workload, not an observed distribution: the effective set is a size-weighted
+mean and collapses to one agent's own action count only when every agent acts
+equally often. Real fleets are not uniformly active — which changes that
+number, not the direction of the gap. Joint's figures equal per-agent's by
 construction, because `Joint::tree_for` is byte-identical to
 `PerAgent::tree_for` and the metric never reads the anchor policy; global
 versus per-agent is the only real comparison here, and joint's anchoring
@@ -287,9 +298,10 @@ findings above — including the durability test that passes while the system it
 tests is broken, which we think is the more useful of the two because it is a
 statement about how the property gets *tested* rather than about one schema.
 
-Its figures come from `results/*.json` on one machine, one run per cell,
-and it reports the mistake that produced its most interesting finding
-rather than presenting the finding as foresight.
+Its figures come from `results/*.json` — throughput and latency on one
+machine, one run per cell; linkability derived from the tree-assignment
+function and so not any machine's — and it reports the mistake that produced
+its most interesting finding rather than presenting the finding as foresight.
 
 ---
 
@@ -313,14 +325,27 @@ it works — which removes the property the comparison existed to provide.
 
 ## Building
 
-`transit` is a **private** sibling repo in this org, so you need read access
-to build. `.cargo/config.toml` sets `net.git-fetch-with-cli = true`; do not
-delete it, for the reasons documented in that file.
+`transit` and `occultation` are **private** sibling repos in this org, and you
+need read access to **both**, even for a default build. `occultation` is only
+compiled under `--features bench`, but cargo resolves optional dependencies
+regardless of features, so its git source must be fetchable for any build —
+without it, a plain `cargo build` fails with ``failed to load source for
+dependency `occultation` ``. Compilation is feature-gated; resolution is not.
+Concretely: a contributor with access to `transit` but not `occultation` could
+build this crate before this branch and cannot after it.
+
+`.cargo/config.toml` sets `net.git-fetch-with-cli = true`; do not delete it,
+for the reasons documented in that file.
 
 ```bash
-cargo test
-cargo clippy --all-targets -- -D warnings
 cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+
+# The bench feature, which CI also gates on. Feature-gated code that nothing
+# builds stops compiling quietly.
+cargo clippy --all-targets --features bench -- -D warnings
+cargo test --features bench
 ```
 
 Everything runs offline: no network, no credentials, no TEE.

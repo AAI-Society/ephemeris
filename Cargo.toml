@@ -34,8 +34,18 @@ occultation = { git = "https://github.com/Task-force-for-AI-agents-in-Healthcare
 tempfile = { version = "3", optional = true }
 
 [features]
-# `bench` pulls occultation, which pulls blstrs and the BLS12-381 stack. The
-# default build and the whole default test suite stay free of it.
+# `bench` pulls occultation, which pulls blstrs and the BLS12-381 stack. None
+# of that is compiled or linked unless the feature is on.
+#
+# It does NOT follow that a default build can ignore occultation. Cargo
+# resolves the whole dependency graph — optional dependencies included —
+# before it resolves features, so `cargo build` with no features still has to
+# be able to FETCH the occultation git source, and fails with "failed to load
+# source for dependency `occultation`" if it cannot. Two private repos are
+# therefore required to build this crate at all, where before this branch one
+# was: a contributor with read access to transit but not occultation could
+# build before, and cannot now. Compilation is feature-gated; resolution is
+# not.
 bench = ["dep:occultation", "dep:tempfile"]
 
 [[bin]]

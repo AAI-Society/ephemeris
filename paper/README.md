@@ -37,16 +37,25 @@ unavoidable, and the durability finding is a second, separable result. Do not
 promote §4 to the front in editing: it is the more novel finding but the less
 structural one, and leading with it makes the paper look like a bug report.
 
-**Where the numbers come from.** Every throughput, latency and linkability
-figure in §7 is derived from `../results/*.json`, produced by
-`cargo run --release --features bench --bin ephemeris-bench`. They are **one
-machine's** — an Apple M5 Max, 18 logical cores, macOS, `File::sync_data` =
-`F_FULLFSYNC` at a measured 3438 µs — **one run per cell, no warm-up, no
-repetitions**. The library state measured is commit `25e56f1`; the bench binary
-that reproduces it was added in `d603168`.
+**Where the numbers come from.** Every figure in §7 is read out of
+`../results/*.json`, produced by
+`cargo run --release --features bench --bin ephemeris-bench`. The
+**throughput and latency** figures are **one machine's** — an Apple M5 Max, 18
+logical cores, macOS, `File::sync_data` = `F_FULLFSYNC` at a measured 3438 µs —
+**one run per cell, no warm-up, no repetitions**. The library state measured is
+commit `25e56f1`; the bench binary that reproduces it was added in `d603168`.
 
-Two things the section is required to keep saying, because a review caught both
-being got wrong the first time:
+**The linkability figures are not measurements and are not this machine's.**
+The bench binary hands `linkability::measure` an agent list built from
+`--agents` and `--claims-per-agent` and never reads the throughput run's
+report, so those figures are a closed-form function of `tree_for`: identical on
+any host, and identical had the run acked nothing. §7.1 must describe them as
+derived, never as measured, and must not let the "one machine, one afternoon"
+framing that correctly qualifies §7.2–§7.4 spill onto them — that framing is
+exactly inverted for §7.1.
+
+Three things the section is required to keep saying, because a review caught
+each of them being got wrong the first time:
 
 - **The topology axis is declared untested.** The commit path builds no tree,
   so the three throughput sweeps are one experiment repeated three times. They
@@ -55,6 +64,10 @@ being got wrong the first time:
 - **Joint vs. per-agent linkability is a tautology**, not a result:
   `Joint::tree_for` is byte-identical to `PerAgent::tree_for` and the metric
   never reads the anchor policy. Global vs. per-agent is the real comparison.
+- **The linkability result is derived, not measured**, per the paragraph
+  above — and the flat per-agent 20.0 is the stipulated uniform workload, not
+  an observed distribution. If an edit reintroduces "we measure, on one
+  machine, what the tree arrangement costs in linkability", revert it.
 
 `results/README.md` is the authoritative reading of these numbers. If §7 and
 that file ever disagree, that file wins.

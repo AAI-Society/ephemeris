@@ -210,6 +210,22 @@ pub struct QueueStats {
     pub claims: u64,
     pub fsyncs: u64,
     pub batch_sizes: Vec<usize>,
+    /// Set when the commit thread ended by panicking rather than by
+    /// returning.
+    ///
+    /// A panicking commit thread takes its `QueueStats` with it, so `stop`
+    /// has nothing to report and every counter above is zero. Without this
+    /// flag those zeros are indistinguishable from a run that legitimately
+    /// committed nothing, and a caller that had already collected real
+    /// acknowledgements before the panic would publish real claim counts,
+    /// real throughput and real percentiles alongside `batches: 0`,
+    /// `fsyncs: 0` — a broken run reading as a healthy smaller one. That is
+    /// the same failure mode `submitted`/`failed` exist to prevent in
+    /// `bench::run::RunReport`, applied to the other half of the report.
+    ///
+    /// Every other field is meaningless when this is set; do not compute
+    /// with them.
+    pub worker_panicked: bool,
 }
 
 /// A commit loop fed by a channel: many submitters, one batching thread, one
@@ -288,7 +304,17 @@ impl CommitQueue {
             let _ = tx.send(Msg::Stop);
         }
         match self.worker.take() {
-            Some(w) => w.join().unwrap_or_default(),
+            // `join` returning `Err` means the commit loop unwound. The panic
+            // payload is dropped rather than resumed: `stop` is also called
+            // from `Drop`, where resuming would abort the process while
+            // another panic may already be unwinding. The fact of the panic
+            // is carried in the stats instead, so a caller can refuse to
+            // publish numbers rather than publishing zeros that look like a
+            // quiet run. See `QueueStats::worker_panicked`.
+            Some(w) => w.join().unwrap_or_else(|_| QueueStats {
+                worker_panicked: true,
+                ..QueueStats::default()
+            }),
             None => QueueStats::default(),
         }
     }

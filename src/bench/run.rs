@@ -1,4 +1,5 @@
 use crate::bench::TopologyKind;
+use crate::chain::{verify_sequence, ChainError};
 use crate::commit::{CommitQueue, Committer};
 use crate::record::Claim;
 use crate::store::{Store, StoreError};
@@ -12,6 +13,20 @@ pub enum RunError {
     Store(#[from] StoreError),
     #[error("an agent thread panicked, so this run measured nothing")]
     AgentPanicked,
+    #[error(
+        "the commit thread panicked, so its batch and fsync counts were lost; \
+         the run's claim counts and latencies are real but the report they \
+         belong in would read as a healthy run"
+    )]
+    CommitThreadPanicked,
+    #[error(
+        "{acked} claims were acknowledged but only {recovered} records came \
+         back from the store on reopen: an acknowledgement was issued for \
+         evidence that is not there"
+    )]
+    NotDurable { acked: usize, recovered: usize },
+    #[error("the recovered log does not verify against itself: {0}")]
+    ChainBroken(#[from] ChainError),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -83,6 +98,11 @@ pub struct RunReport {
 ///
 /// Every latency here is measured around a real submit-to-`Ack` round trip.
 /// Nothing is modelled, extrapolated, or inferred from batch timings.
+///
+/// The run is checked before it is reported, in two ways that a
+/// claims/second figure alone would not catch — see `RunError` and
+/// `verify_durable`. Both checks run **after** `wall` has been captured and
+/// after the queue has shut down, so neither can move a published number.
 pub fn run(cfg: &RunConfig, dir: &Path) -> Result<RunReport, RunError> {
     let queue = CommitQueue::new(Committer::new(Store::open(dir)?));
 
@@ -114,6 +134,19 @@ pub fn run(cfg: &RunConfig, dir: &Path) -> Result<RunReport, RunError> {
     let wall = started.elapsed().as_secs_f64();
     let stats = queue.shutdown();
 
+    // A panicked commit thread returns all-zero stats (see
+    // `QueueStats::worker_panicked`). The claim counts and latencies above
+    // are real, so a report built from them would carry real throughput and
+    // real percentiles next to `batches: 0`, `mean_size: 0.0`, `fsyncs: 0` —
+    // a broken run that reads as a healthy smaller one. Refuse instead.
+    if stats.worker_panicked {
+        return Err(RunError::CommitThreadPanicked);
+    }
+
+    // Everything acked was supposed to be durable. Check it, rather than
+    // taking the acknowledgements' word for it.
+    verify_durable(dir, samples.len())?;
+
     let mean_size = if stats.batches == 0 {
         0.0
     } else {
@@ -143,6 +176,46 @@ pub fn run(cfg: &RunConfig, dir: &Path) -> Result<RunReport, RunError> {
         },
         fsyncs: stats.fsyncs,
     })
+}
+
+/// Reopen the store the run just wrote and check that the acknowledgements
+/// it handed out are backed by evidence that is actually there.
+///
+/// **Why a benchmark does this at all.** The headline unit of this harness is
+/// acknowledgements per second, and an acknowledgement in this crate is a
+/// claim about durability, not a claim about arithmetic. A regression that
+/// acked before `fsync` — or that acked a batch whose bytes never reached the
+/// file — would make every number in the report *better*: higher
+/// claims/second, a plausible p99, a batch count and fsync count that still
+/// look sane. Nothing in the report, in `results/*.json`, or in CI's
+/// shape check would read as wrong. Counting acknowledgements without ever
+/// looking at what they promised is the one thing a benchmark of a
+/// fail-closed evidence log must not do.
+///
+/// Two things are checked, and they fail differently on purpose:
+///
+/// - **Count.** Every acked claim must come back on reopen. `Store::open`
+///   truncates a torn trailing record — a record acked but not durable is
+///   therefore an absence here, not a parse error.
+/// - **Chain.** `Store::open` recomputes the head as it reads but never
+///   compares it to what each record declares, so a record whose
+///   `chain_head` or `step_index` disagrees with its neighbours survives
+///   recovery. `verify_sequence` is what actually reads those fields.
+///
+/// Called after `CommitQueue::shutdown`, so the store's writer is gone and
+/// this reopen races nothing. It is outside the timed window by
+/// construction: `run` captures `wall` before shutting the queue down.
+pub fn verify_durable(dir: &Path, acked: usize) -> Result<(), RunError> {
+    let store = Store::open(dir)?;
+    let recovered = store.records();
+    if recovered.len() != acked {
+        return Err(RunError::NotDurable {
+            acked,
+            recovered: recovered.len(),
+        });
+    }
+    verify_sequence(recovered)?;
+    Ok(())
 }
 
 /// The claim an agent submits. Every field is fixed except the identity

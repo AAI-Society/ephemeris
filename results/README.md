@@ -2,10 +2,23 @@
 
 Produced by `cargo run --release --features bench --bin ephemeris-bench`.
 
-**These are measurements of one machine at one moment, not properties of
-`ephemeris`.** Every file records the host that produced it — CPU, core count,
-OS, the sync call used, and the measured cost of that call. Read those fields
-before reading any throughput number.
+**The `throughput` and `latency` arrays are measurements of one machine at one
+moment, not properties of `ephemeris`.** Every file records the host that
+produced it — CPU, core count, OS, the sync call used, and the measured cost
+of that call. Read those fields before reading any throughput number.
+
+**The `linkability` arrays are the exact inverse of that, despite sitting in
+the same JSON object under the same `host` key.** Nothing in them was timed.
+`src/bin/ephemeris-bench.rs` builds the per-agent action list handed to
+`linkability::measure` from `--agents` and `--claims-per-agent` alone; it
+never reads the `RunReport` the throughput run just produced. So every
+linkability figure is a closed-form function of the tree-assignment function
+`tree_for` and those two numbers: byte-identical on any host, and byte-identical
+even if every one of the 20,000 claims in the throughput run had been refused.
+They *are* properties of `ephemeris` and are *not* properties of this machine.
+The `host` block applies to the throughput and latency arrays; it does not
+qualify the linkability ones, and re-running on other hardware would not
+change a digit of them. See section 4.
 
 **Do not compare across platforms without checking `sync_call` and `sync_us`.**
 On macOS `File::sync_data` is `F_FULLFSYNC` and forces a drive cache flush,
@@ -46,13 +59,27 @@ holds at batch size 1 and fails by roughly 7x at batch size 909.
 The per-batch, non-fsync time (total wall time per commit cycle, minus the
 measured `sync_us`) rises from about **0.21 ms at batch size 1** to about
 **22.9 ms at batch size 909**. The commit loop (`run_loop` in
-`src/commit.rs`) is a single thread that builds every `Record`
-(canonicalization, SHA-256, hash-chain extension) and only then calls
-`append_batch`, so that per-record work — plus waking up to 909 blocked
-submitter threads once the batch completes — happens serially, in one
-thread, before the next `fsync` can start. That is consistent with the
-residual growing roughly with batch size and dominating wall time at the top
-of the sweep.
+`src/commit.rs`) is a single thread, and everything it does per record
+happens serially in that thread before the next `fsync` can start:
+
+- a **full deep clone of every claim in the batch**, before any record is
+  built at all — `run_loop` builds its `pairs` vector with
+  `batch.iter().map(|s| (s.claim.clone(), s.now_secs))`, copying a ten-field
+  struct with nine owned `String`s, 909 times over at the top of the sweep,
+  allocating each one;
+- building every `Record`: canonicalization, SHA-256, hash-chain extension;
+- and, once `append_batch` returns, waking up to 909 blocked submitter
+  threads.
+
+That is consistent with the residual growing roughly with batch size and
+dominating wall time at the top of the sweep. The clone is listed first
+because it is the cheapest to remove and was the easiest to overlook: it is
+avoidable — after this line the batch's claims are never read again, only its
+reply channels are, so the submissions could be split into claims and repliers
+instead of copied — but removing it would take an allocation off the
+measured path and invalidate every number in this directory, so it is
+reported here rather than fixed under the same change that published these
+figures.
 
 ### 2. Caveat on the number above: `sync_us` itself is an underestimate at scale
 
@@ -100,7 +127,7 @@ throughput comparison needs the harness to actually build the forest (e.g.
 by having the committer construct `Record`s per-tree, or by measuring
 `Forest::insert` cost directly), which this task does not do.
 
-### 4. Joint vs. per-agent linkability is a tautology; global vs. per-agent is real
+### 4. Joint vs. per-agent linkability is a tautology; global vs. per-agent is real, and derived rather than measured
 
 `Joint::tree_for` in `src/topology.rs` is byte-for-byte identical to
 `PerAgent::tree_for` — both return `TreeId(format!("{AGENT_PREFIX}{agent}"))`.
@@ -114,11 +141,30 @@ produce identical numbers, because `tree_for` takes no time argument at all.
 The `joint.json`/`per-agent.json` linkability arrays matching exactly is
 therefore expected by construction, not a result.
 
-**Global vs. per-agent is a real, empirical result**: `global`'s
-`effective_anonymity_set` equals the full action count at every row (one
-tree, `entropy_bits = 0`), while `per-agent`'s is 20.0 at every row (each
-agent indistinguishable only from itself). That comparison genuinely
-exercises `tree_for` and is meaningful.
+**Global vs. per-agent is a real result about `tree_for` — derived, not
+measured**: `global`'s `effective_anonymity_set` equals the full action count
+at every row (one tree, `entropy_bits = 0`), while `per-agent`'s is 20.0 at
+every row (each agent indistinguishable only from itself). That comparison
+genuinely exercises `tree_for`, the divergence is real, and it is the finding
+this directory is for. But it was *derived*, not timed: as the header says,
+`measure` is fed a list built from `--agents` and `--claims-per-agent`, so
+every one of these numbers is analytic in (agents × claims-per-agent),
+identical on any host, and unchanged had the run acked nothing. Nothing about
+the gap depends on this machine, this run, or on any byte having reached
+disk. "We measured linkability" is the wrong phrase; anyone with
+`src/topology.rs` and a pencil reproduces these columns exactly.
+
+One artefact of the derivation to flag, because it is easy to over-read. The
+flat **20.0** in the `per-agent` column is the *stipulated uniform workload*,
+not an observed distribution: the harness gives every agent exactly
+`--claims-per-agent` actions. `effective_anonymity_set` is `sum(n_i^2) / N`,
+the size-weighted mean of squared per-tree action counts, which equals one
+agent's own action count only when every agent contributed the same number —
+see the field's doc comment in `src/bench/linkability.rs`. Real fleets are not
+uniformly active, so a real per-agent forest's figure would be that
+size-weighted mean, pulled above the arithmetic mean by the busiest agents.
+The direction and unboundedness of the global-vs-per-agent gap do not depend
+on uniformity; the particular value 20.0 does.
 
 Measuring `Joint`'s actual anchoring benefit over `PerAgent` — the coarser
 cross-agent ordering `anchor_policy` is supposed to buy — would need a
