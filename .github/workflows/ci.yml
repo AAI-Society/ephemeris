@@ -76,6 +76,20 @@ jobs:
       - run: cargo clippy --all-targets --features tee -- -D warnings
       - run: cargo test --features tee
 
+      # `serve` is the UDS listener behind `--features serve`. Off by
+      # default, same reasoning as `bench`/`tee` above: feature-gated code
+      # CI does not build stops compiling quietly. This gate includes the A9
+      # property checked end to end over the socket
+      # (`a_rewritten_and_relinked_log_still_fails_a_consistency_check_over_the_socket`
+      # in `tests/serve_proofs.rs`) — a served consistency proof for a
+      # rewritten-and-relinked log must not verify against a root published
+      # before the rewrite. It proves the route and its wire format, not that
+      # anything has ever driven this listener in production: nothing here
+      # has been exercised by the real `transit guard`, only by this
+      # repository's own tests.
+      - run: cargo clippy --all-targets --features serve -- -D warnings
+      - run: cargo test --features serve
+
       # A benchmark that cannot run is not a benchmark. This asserts the
       # harness produces a well-formed result for every topology; it asserts
       # NO threshold, because a performance assertion on a shared runner is a

@@ -136,6 +136,7 @@ cargo run --example rewrite        # attack A9, end to end
 cargo test                         # 60 tests, all offline
 cargo test --features bench        # 70, including the harness's own tests
 cargo test --features tee          # 65, the TEE signer's failure paths only
+cargo test --features serve        # 79, the UDS listener, offline and unauthenticated
 
 cargo run --release --features bench --bin ephemeris-bench   # regenerate results/
 ```
@@ -163,6 +164,66 @@ or configuration.
 Every root this tool prints carries the sentence saying what it does not
 defend against. That is not a disclaimer bolted on at the edge; `render()` is
 the only way to print a root and it cannot produce one without it.
+
+---
+
+## The listener
+
+Behind `--features serve`, `ephemeris` can bind a Unix domain socket and
+serve a minimal HTTP/1.1 protocol over it — one thread per connection, no
+async runtime, no TLS. The default build does not include this: nothing
+above needs it, and every command shown so far talks to a log directory
+directly.
+
+**There is no CLI subcommand for this.** `Server::bind` and
+`serve_until_shutdown` are a library API (`ephemeris::serve`), not
+something `ephemeris` the binary exposes — the three commands above are
+still the whole CLI. Something outside this crate has to embed the listener
+to run it at all.
+
+```
+POST /claims?now=<unix seconds>       submit one claim; blocks until durable
+GET  /root                            the same signed root and sentence `ephemeris root` prints
+GET  /proof/inclusion?leaf=&size=     an inclusion proof, refused rather than fabricated out of range
+GET  /proof/consistency?from=&to=     a consistency proof, refused rather than fabricated out of range
+```
+
+`POST /claims` is fail-closed the same way the CLI's own path is: a claim is
+acknowledged only after `Store::append_batch`'s `fsync` returns `Ok`, and the
+listener has exactly one way to construct the acknowledgement it relays, so
+there is no branch that can forward one for bytes that never hit disk. The
+three read routes each re-open the store from disk per request, so a served
+proof can only ever cover a record that is durable — nothing served here
+reaches into memory a crash could still lose.
+
+What this is not:
+
+- **The socket is not an authentication boundary.** Filesystem permissions
+  are the whole of the access control: the socket file is created `0600`,
+  and anything able to write to it can insert records. There is no
+  credential, no token, no allowlist above the filesystem. A deployment that
+  needs more than "whoever can reach this path can log claims" needs to
+  build that outside this crate.
+- **No cross-host logging.** A Unix domain socket exists on one machine's
+  filesystem; there is no network listener here and no way to point a writer
+  at a log on a different host. Writer and log must share a machine.
+- **`serve` is a cargo feature, off by default.** A plain `cargo build`
+  produces a binary with no listener in it at all; `--features serve` is
+  required to compile any of this in.
+- **Never driven by the real `transit guard`.** Every request this listener
+  has ever answered came from a test in this repository. Nothing here has
+  been exercised by the enforcement point it is meant to serve, and the
+  routes' shapes should be read accordingly — plausible, not proven, against
+  a real caller.
+- **The bounds that exist are wide, not tuned.** Live connections are capped
+  at 256 (a `503` past that, not a queue); a request — line, headers, and
+  body together — is cut off after 30 seconds of wall-clock time even if a
+  client keeps sending, not just when it goes idle; a header line is capped
+  at 8 KiB and headers in total at 32 KiB, the same discipline `MAX_BODY`
+  already applied to the body. None of these numbers come from a measured
+  deployment — they were picked to sit far above one `transit guard`
+  process's expected concurrency and far below where the OS's own thread
+  limit starts failing, and that is the extent of the justification.
 
 ---
 
@@ -385,6 +446,12 @@ cargo test --features bench
 # nothing about a TDX guest; there isn't one here.
 cargo clippy --all-targets --features tee -- -D warnings
 cargo test --features tee
+
+# The serve feature, which CI also gates on. See "The listener" above for
+# what this does and does not prove — offline, unauthenticated, and never
+# driven by anything but this repository's own tests.
+cargo clippy --all-targets --features serve -- -D warnings
+cargo test --features serve
 ```
 
 Everything runs offline: no network, no credentials, no TEE. That last one is
@@ -395,7 +462,13 @@ unexercised. Only its failures are reachable from a machine like this.
 
 ## Phase 2, deliberately not here
 
-1. The UDS listener and its routes, so `transit guard` can write to it.
+1. ~~The UDS listener and its routes, so `transit guard` can write to it.~~
+   **Partly done.** The listener, all four routes, and the A9 property
+   checked end to end over the socket exist behind `--features serve` — see
+   [The listener](#the-listener). What remains: it has never been driven by
+   the real `transit guard`, and the socket is not an authentication
+   boundary, only a filesystem permission — see that section for both, said
+   plainly rather than left to infer.
 2. ~~The TEE signer behind a cargo feature, with hardware custody reachable
    only from it, and a test that a default build cannot claim hardware
    custody.~~ **Partly done.** The feature, the custody type and the tests
