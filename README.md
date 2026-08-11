@@ -4,7 +4,7 @@
 
 <p align="center">
   <img alt="Rust 2021" src="https://img.shields.io/badge/rust-2021%20%C2%B7%201.90%2B-CFFF04?style=flat-square&labelColor=0A0A0A">
-  <img alt="tests passing" src="https://img.shields.io/badge/tests-49%20passing-CFFF04?style=flat-square&labelColor=0A0A0A">
+  <img alt="tests passing" src="https://img.shields.io/badge/tests-54%20passing-CFFF04?style=flat-square&labelColor=0A0A0A">
   <img alt="Apache 2.0" src="https://img.shields.io/badge/licence-Apache--2.0-CFFF04?style=flat-square&labelColor=0A0A0A">
   <img alt="Phase 1 of 2" src="https://img.shields.io/badge/build-phase%201%20of%202-8F8A82?style=flat-square&labelColor=0A0A0A">
 </p>
@@ -132,7 +132,10 @@ We report this upstream rather than honour it.
 
 ```bash
 cargo run --example rewrite        # attack A9, end to end
-cargo test                         # 49 tests, all offline
+cargo test                         # 54 tests, all offline
+cargo test --features bench        # 61, including the harness's own tests
+
+cargo run --release --features bench --bin ephemeris-bench   # regenerate results/
 ```
 
 The proof verifiers are checked exhaustively rather than by sampling: every
@@ -194,10 +197,56 @@ fabricated digest. `agbom_digest` has no field and no API, because no AgBOM
 tooling exists and a stub would be read as a measurement. See P04, P10, and
 `spectrum`.
 
-**Not measured.** There is no throughput number here, and no linkability
-number. Phase 1 ships no benchmark at all, so any claim about what this costs
-at agent action rates would be invented. That is Phase 2's `bench`, across all
-three topologies.
+**Measured, on one machine, once.** Phase 2's `bench` ran 1, 10, 100 and 1,000
+agents against each topology. The host was an Apple M5 Max, 18 logical cores,
+macOS, where `File::sync_data` is `F_FULLFSYNC` and costs a measured 3,438 µs.
+One run per cell, no warm-up, no repetitions. Everything below is in
+[`results/`](results/README.md), and **that file's "Outcome" section is the
+authoritative reading** — it lists caveats this summary compresses.
+
+*Linkability is the headline, and it is the objection landing.* A single
+global tree's effective anonymity set grows with the fleet: 20, 200, 2,000,
+20,000 actions at 1/10/100/1,000 agents, one tree, 0.00 bits of tree-identity
+entropy at every size. A tree per agent pins the effective anonymity set at
+**20.0 at every fleet size**, with entropy rising 0.00 → 3.32 → 6.64 → 9.97
+bits — exactly log₂(agents). So the gap between the two arrangements widens
+without bound as the fleet grows. Joint's figures equal per-agent's by
+construction, because `Joint::tree_for` is byte-identical to
+`PerAgent::tree_for` and the metric never reads the anchor policy; global
+versus per-agent is the only real comparison here, and joint's anchoring
+benefit remains unmeasured.
+
+*Unloaded latency is one fsync.* At one agent, p50 3.9 ms and p99 4.2 ms. The
+p99 of 52.3 ms at 1,000 agents is a **closed-loop saturation** figure — agents
+submit with zero think time, so offered load is unbounded by construction, and
+Little's law reproduces the number as concurrency ÷ throughput. Size a
+fail-closed logging budget from the 1-agent row.
+
+*The throughput prediction failed.* We predicted `mean_batch_size × (1e6 /
+sync_us)` before measuring. Actual ÷ predicted is 0.94 at one agent and 0.13
+at a thousand: it holds at batch size 1 and misses by roughly 7× at batch size
+909. Group commit does amortise — 274 claims/s at one agent, 34,566/s at a
+thousand — but throughput stops tracking the sync ceiling well before reaching
+it. Per-batch non-sync time rises from ~0.21 ms at batch size 1 to ~22.9 ms at
+batch size 909; our best account of that is the single commit thread, which
+canonicalizes, hashes and chains every record serially before the batch's one
+`fsync` can start. That is an account, not an attribution. Treat the implied
+fsync share as an upper bound rather than a decomposition of wall time:
+`sync_us` was probed with an 11-byte write, while a full batch writes hundreds
+of kilobytes, and `F_FULLFSYNC`'s cost is not independent of how many dirty
+bytes it flushes.
+
+*The topology axis was not tested.* `run()` uses the topology only to label
+its output; the commit path does no tree work at all, so the three throughput
+sweeps are one experiment repeated three times. We use them only as a
+run-to-run noise estimate — spreads of 4.3%, 30.3%, 19.7% and 2.0% at
+1/10/100/1,000 agents. **We make no claim that topology does not affect
+throughput; we did not test it.** These numbers also exclude Merkle tree
+maintenance entirely, so a deployment maintaining the forest incrementally
+would be slower by an amount this run did not measure. Do not compare any of
+this to a Linux number without quoting the sync call: `fdatasync` typically
+does not flush the drive cache, so Linux would look faster while being
+*weaker*.
 
 **The limit that matters.** Everything this tool does well is downstream of a
 custody arrangement it does not implement. If nobody outside the operator ever
@@ -281,9 +330,10 @@ Everything runs offline: no network, no credentials, no TEE.
 1. The UDS listener and its routes, so `transit guard` can write to it.
 2. The TEE signer behind a cargo feature, with `Custody::Tee` reachable only
    from it, and a test that a default build cannot claim hardware custody.
-3. `bench` — throughput and tail latency against 1–1,000 agents, and
-   linkability per topology.
-4. The `poc-audit` cross-check, which needs a released tag of this repo.
+3. The `poc-audit` cross-check, which needs a released tag of this repo.
+4. A throughput harness that actually builds the forest, so the topology axis
+   can be measured rather than labelled — and a linkability metric that reads
+   ordering, so joint's anchoring can be told apart from per-agent's.
 
 ## Licence
 
