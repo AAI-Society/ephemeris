@@ -101,7 +101,7 @@ fn main() {
     println!("  root signs cleanly:             true");
     println!(
         "  signature:                      {}…\n",
-        &signed.signature[..32]
+        &signed.signature()[..32]
     );
 
     println!("Nothing is broken. There is no failing check to notice, no torn");

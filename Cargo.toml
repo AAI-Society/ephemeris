@@ -32,13 +32,21 @@ anyhow = "1"
 sha2 = "0.10"
 hex = "0.4"
 humantime = "2"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "2", features = ["rand_core", "pkcs8"] }
 rand_chacha = "0.3"
-rand_core = "0.6"
+rand_core = { version = "0.6", features = ["getrandom"] }
 
 transit = { git = "https://github.com/Task-force-for-AI-agents-in-Healthcare/transit.git", rev = "3e10e13" }
 occultation = { git = "https://github.com/Task-force-for-AI-agents-in-Healthcare/occultation.git", rev = "3f50bdd", optional = true }
 tempfile = { version = "3", optional = true }
+# Pinned to fcc86d5, not the plan's original 030686d: parallax's history was
+# rewritten today (redacting a demo VM's address) and 030686d no longer
+# resolves on the remote, which breaks dependency resolution for every build,
+# `tee` on or off — see the `tee` feature comment below. fcc86d5 is the
+# current tip and carries every symbol Task 2 needs: `ratls::expected_report_data`,
+# `attest::tsm::{request_quote, request_quote_at, TSM_REPORT_DIR}`, and
+# `verify::binding`.
+parallax = { git = "https://github.com/Task-force-for-AI-agents-in-Healthcare/parallax.git", rev = "fcc86d5", optional = true }
 
 [features]
 # `bench` pulls occultation, which pulls blstrs and the BLS12-381 stack. None
@@ -54,6 +62,26 @@ tempfile = { version = "3", optional = true }
 # build before, and cannot now. Compilation is feature-gated; resolution is
 # not.
 bench = ["dep:occultation", "dep:tempfile"]
+
+# `tee` pulls parallax for the attestation call and the report_data
+# derivation. Off by default: the default build signs with a labelled software
+# key and cannot claim hardware custody. Note that, as with `bench`, cargo
+# resolves optional dependencies regardless of features, so the parallax source
+# must be fetchable for any build even though nothing from it compiles.
+#
+# `parallax/attest` is required alongside `dep:parallax`: parallax gates its
+# own `attest` module (which is where `tsm::request_quote` lives) behind an
+# `attest` feature of its own, off by default there for the same reason ours
+# is off by default here — it pulls rcgen and the TLS stack. Without
+# forwarding it, `parallax::attest` does not exist and `src/tee.rs` fails to
+# compile under `--features tee`.
+tee = ["dep:parallax", "parallax/attest"]
+
+# `serve` needs no new dependency: the listener is std's UnixListener and a
+# minimal HTTP/1.1 reader. See the design's transport section for why this is
+# not hyper+tokio — the crate is blocking end to end, fsync is ~3.4ms, and the
+# measured ceiling is ~310 batches/sec set by durability rather than transport.
+serve = []
 
 [[bin]]
 name = "ephemeris-bench"
