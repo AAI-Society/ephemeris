@@ -51,13 +51,13 @@ impl TeeSigner {
 impl Signer for TeeSigner {
     fn sign_root(&self, root: &[u8; 32], size: u64) -> SignedRoot {
         let sig = self.key.sign(&signing_bytes(root, size));
-        SignedRoot {
-            root: hex::encode(root),
+        SignedRoot::new(
+            hex::encode(root),
             size,
-            public_key: hex::encode(self.key.verifying_key().to_bytes()),
-            signature: hex::encode(sig.to_bytes()),
-            custody: Custody::tee(),
-        }
+            hex::encode(self.key.verifying_key().to_bytes()),
+            hex::encode(sig.to_bytes()),
+            Custody::tee(),
+        )
     }
 
     fn custody(&self) -> Custody {

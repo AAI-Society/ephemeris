@@ -1,13 +1,55 @@
 //! The property the design asks for: a build without the `tee` feature cannot
 //! emit a root claiming hardware custody.
+//!
+//! # Where the real proof lives
+//!
+//! This file used to also contain `nothing_in_a_default_build_constructs_tee_custody`,
+//! a text scan of `src/sign.rs` that demanded every line containing
+//! `Custody::Tee` be a match arm or carry the `tee` cfg attribute. It was
+//! deleted, not weakened, because it was checking the wrong thing: it only
+//! ever read `src/sign.rs`'s own source, so it was structurally blind to a
+//! `SignedRoot { custody: Custody::Tee, .. }` literal written *anywhere
+//! else* — another file in this crate, or a downstream crate entirely. That
+//! is exactly where the real hole was. Before this file's fix, `Custody` was
+//! `pub enum Custody { Software, Tee }` and every field of `SignedRoot` was
+//! `pub`. Rust cannot restrict one enum variant's visibility below the
+//! enum's, so `Custody::Tee` was a namable path — and `SignedRoot`'s public
+//! fields meant no `Signer` was needed to assemble one. The following
+//! compiled and rendered a full hardware-custody claim with no `TeeSigner`
+//! and no `tee` feature:
+//!
+//! ```rust,ignore
+//! use ephemeris::sign::{Custody, SignedRoot};
+//! let forged = SignedRoot {
+//!     root: "00".repeat(32), size: 1,
+//!     public_key: "aa".repeat(32), signature: "bb".repeat(64),
+//!     custody: Custody::Tee,
+//! };
+//! forged.render() // "... custody TEE"
+//! ```
+//!
+//! The fix makes both types opaque outside `src/sign.rs`: `Custody` wraps a
+//! private `CustodyInner` enum, and `SignedRoot`'s fields are private with
+//! read accessors, constructed only through `SignedRoot::new` (itself
+//! `pub(crate)`, called only by `Signer::sign_root` implementations). That
+//! turns the snippet above into a compile error rather than a passing test —
+//! see the `compile_fail` doctest on `SignedRoot::render` in `src/sign.rs`,
+//! which is that exact snippet, checked by `cargo test` (doc-tests run by
+//! default) every time this crate is tested. A text scan can only ever tell
+//! you a particular file looks a certain way; the compiler is what actually
+//! enforces "there is no expression, anywhere, that produces this value,"
+//! and only a type-level fix lets the compiler do that job.
+//!
+//! What is left here is behavioural: what a real `SoftwareSigner` actually
+//! produces and renders.
 
 use ephemeris::sign::{Custody, Signer, SoftwareSigner};
 
 #[test]
 fn a_default_build_signs_with_software_custody() {
     let s = SoftwareSigner::generate([7u8; 32]);
-    assert_eq!(s.custody(), Custody::Software);
-    assert_eq!(s.sign_root(&[0u8; 32], 1).custody, Custody::Software);
+    assert_eq!(s.custody(), Custody::software());
+    assert_eq!(s.sign_root(&[0u8; 32], 1).custody(), Custody::software());
 }
 
 #[test]
@@ -21,85 +63,4 @@ fn a_rendered_root_says_software_and_says_what_is_undefended() {
         "a software build rendered a TEE claim"
     );
     assert!(text.contains("C7.3.3"));
-}
-
-/// Compile-fail is the real assertion and it cannot be written as a runtime
-/// test: without the `tee` feature there is no expression that produces
-/// `Custody::Tee`. This test documents the property and fails loudly if a
-/// future edit adds a public constructor reachable from a default build.
-///
-/// A naive per-line scan (does *this line* contain `=>` or the cfg text
-/// itself?) does not survive the constructor the property requires:
-///
-/// ```ignore
-/// #[cfg(feature = "tee")]
-/// pub(crate) fn tee() -> Custody {
-///     Custody::Tee
-/// }
-/// ```
-///
-/// The line that actually yields `Custody::Tee` is the function body, which
-/// has neither a `=>` nor the `cfg` attribute on it — the attribute is on the
-/// line above, gating the enclosing item rather than the line itself. So this
-/// walks brace depth to know, for every line, whether it sits inside an item
-/// whose *nearest preceding attribute* was `#[cfg(feature = "tee")]`, and
-/// only then allows a bare `Custody::Tee` outside a match arm. The property
-/// under test is unchanged: no default-build-reachable expression yields
-/// `Custody::Tee`. What changed is recognizing "reachable" correctly for an
-/// attribute that gates a whole item rather than one line.
-#[test]
-fn nothing_in_a_default_build_constructs_tee_custody() {
-    let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/sign.rs"))
-        .expect("sign.rs is part of this crate");
-
-    // `depth` is brace nesting. `gate_active`/`gate_depth` track whether the
-    // item we are currently inside was introduced by a
-    // `#[cfg(feature = "tee")]` attribute, and at what depth that item's body
-    // began (so we know when it closes).
-    let mut depth: i32 = 0;
-    let mut pending_gate = false;
-    let mut gate_active = false;
-    let mut gate_depth: i32 = 0;
-
-    for (i, line) in src.lines().enumerate() {
-        let code = line.split("//").next().unwrap_or("").trim();
-
-        if code.contains("Custody::Tee") {
-            let in_match_arm = code.contains("=>");
-            let directly_gated = code.contains("cfg(feature = \"tee\")");
-            assert!(
-                in_match_arm || directly_gated || gate_active,
-                "src/sign.rs:{} constructs Custody::Tee outside a match arm and outside an item gated on the tee feature: {}",
-                i + 1,
-                line.trim()
-            );
-        }
-
-        if code.contains("cfg(feature = \"tee\")") {
-            pending_gate = true;
-        } else if pending_gate && !code.is_empty() && !code.starts_with('#') {
-            // First substantive line after the attribute is the item it gates.
-            gate_active = true;
-            gate_depth = depth;
-            pending_gate = false;
-        }
-
-        for ch in code.chars() {
-            match ch {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if gate_active && depth <= gate_depth {
-                        gate_active = false;
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    assert!(
-        !pending_gate,
-        "a #[cfg(feature = \"tee\")] attribute at end of file was never applied to an item"
-    );
 }
