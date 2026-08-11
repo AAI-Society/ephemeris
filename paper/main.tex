@@ -142,7 +142,17 @@ opposite reason---and we report the luck rather than dressing it up as method.
 We also report that the schema we were implementing chains over two fields of
 a record rather than the record, which leaves the step index, the target
 resource, the policy bundle and every identity field outside the chain
-entirely.}
+entirely.
+
+Finally we derive --- from the function that assigns records to trees, not
+from any timing --- what the tree arrangement costs in linkability. A single
+global tree's effective anonymity set grows with the fleet; a tree per agent
+pins it at one agent's actions no matter how large the fleet gets, so the gap
+widens without bound, on any hardware. We also record that our predeclared
+throughput prediction failed by sevenfold at high batch size,
+and that the other half of the experiment --- what the arrangement costs in
+throughput --- was never actually tested, for a reason we explain rather than
+paper over.}
 
 \clearpage
 
@@ -533,6 +543,235 @@ than implement it. An implementation that honoured it would be conformant and
 weaker, and we would rather be non-conformant in the direction of covering more
 of the record.
 
+\section{What It Costs, and What We Got Wrong}
+\label{sec:measure}
+
+An earlier draft of this paper said, in this position, that we had no
+performance numbers and were not going to guess. We have some now. They come
+from one machine, one run per cell, no warm-up and no repetitions: an Apple M5
+Max with 18 logical cores running macOS, where \texttt{File::sync\_data} is
+\texttt{F\_FULLFSYNC} and a measured probe puts one call at
+3438 us. Every throughput and latency number below is a fact about
+that machine on that afternoon, not a property of the design, and one half of
+what we set out to settle we did not settle at all. We say which
+half. The linkability numbers in Section~7.1 are the one exception, in the
+opposite direction: they were not timed and are not this machine's, for the
+reason given there.
+
+The harness runs 1, 10, 100 and 1{,}000 simulated agents, each submitting 20
+claims and blocking on its acknowledgement, against each of the three tree
+arrangements the crate implements: one global tree, one tree per agent, and
+one tree per agent with a periodic joint anchor --- with a caveat about what
+that meant for the throughput half, stated in Section~7.4.
+
+\subsection{The linkability result, which is the one that matters}
+
+This is the finding. The two arrangements do not merely differ; they diverge,
+and the divergence grows with the fleet.
+
+Before the table, what kind of result it is. These numbers were not measured.
+Our harness computes them from the agent count and the per-agent claim count
+alone---it hands the tree-assignment function a stipulated list of agents and
+action counts and never consults the throughput run's output---so
+Table~\ref{tab:link} is a closed-form consequence of the assignment function,
+identical on any hardware, and identical had the log refused every one of the
+20,000 claims the throughput sweep submitted. It is a real result about the
+tree arrangement and it is not an empirical one. We say so rather than let it
+borrow the credibility of the timings around it, and we would rather a reader
+be able to re-derive the table with a pencil than believe it needed our
+machine.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{r rrr rrr}
+\toprule
+& \multicolumn{3}{c}{one global tree} & \multicolumn{3}{c}{one tree per agent} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+agents & trees & eff.\ set & entropy & trees & eff.\ set & entropy \\
+\midrule
+1    & 1 & 20      & 0.00 & 1    & 20.0 & 0.00 \\
+10   & 1 & 200     & 0.00 & 10   & 20.0 & 3.32 \\
+100  & 1 & 2{,}000  & 0.00 & 100  & 20.0 & 6.64 \\
+1000 & 1 & 20{,}000 & 0.00 & 1000 & 20.0 & 9.97 \\
+\bottomrule
+\end{tabular}
+\caption{Linkability over 20 actions per agent. ``Eff.\ set'' is the effective
+anonymity set: how many actions an observer who knows only which tree a record
+sits in cannot tell apart. ``Entropy'' is the tree-identity entropy in bits.}
+\label{tab:link}
+\end{table}
+
+Read the two ``eff.\ set'' columns against each other. The global tree's grows
+with the fleet, one for one: at a thousand agents, an observer who has learned
+which tree a record is in has learned that it is one of twenty thousand
+actions, which is to say nothing. The per-agent forest's does not grow at all.
+It is 20.0 at one agent and 20.0 at a thousand, because every tree contains
+exactly one agent's twenty actions and membership in it names that agent.
+That flat 20.0 is the workload we stipulated, not a distribution we observed:
+every simulated agent submits exactly twenty claims. The effective set is the
+size-weighted mean of the per-tree action counts --- each tree counted in
+proportion to how many actions it holds --- which collapses to one agent's own
+action count only when every agent contributes the same number. Real fleets are not uniformly active, so a real deployment's per-agent
+figure would be that weighted mean rather than a constant, dragged above the
+plain average by whichever agents are busiest. What does not depend on the
+uniformity is the
+direction: whatever the distribution, the per-agent forest's effective set is
+bounded by the largest single agent's action count while the global tree's is
+the whole fleet's, so the gap still grows without bound.
+Meanwhile the entropy column climbs 0.00, 3.32, 6.64, 9.97 --- which is
+$\log_2(\text{agents})$ to two decimals, and that is the point: every agent
+added to the fleet adds information the tree structure leaks, and none of it is
+shared with anybody.
+
+So the anonymity gap between the two arrangements widens without bound as
+the deployment grows. This is the concrete form of an objection we had
+previously only stated: a per-agent forest is the arrangement people reach
+for because its trees are independent and shard by agent with no shared
+append point --- whether that actually buys throughput is something we did
+not measure, for the reason given at the end of this section --- and it is
+also the arrangement whose keys are agent identifiers. Anyone reaching for
+it because it is operationally convenient should see Table~\ref{tab:link}
+first.
+
+We must be exact about what this does \emph{not} cover. The joint arrangement
+produces linkability figures identical to the per-agent one, and that is a
+tautology rather than a result: its tree-assignment function is byte-for-byte
+the same function, and our metric reads only which tree a record lands in, not
+when or under what anchor. It could not distinguish the two at any anchor
+interval or any run length. Whatever the joint anchor buys --- a coarser
+cross-agent ordering --- needs a metric over ordering to measure, and we have
+not written one. Global versus per-agent is the real comparison in
+Table~\ref{tab:link}; joint's column would be a copy of per-agent's and we have
+left it out rather than present it as a third data point.
+
+\subsection{The prediction we recorded, and how it failed}
+
+Before running anything, the design recorded what it expected: that with one
+\texttt{fsync} per batch, throughput would be
+$\text{mean batch size} \times (10^6 / \texttt{sync\_us})$ claims per second.
+We recorded it in the output files precisely so that a contradiction would read
+as a contradiction. It contradicted.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{r r r r r}
+\toprule
+agents & mean batch & predicted claims/s & actual claims/s & actual / predicted \\
+\midrule
+1    & 1.0   & 290.8      & 274.1      & \textbf{0.94} \\
+10   & 7.14  & 2{,}077.5   & 1{,}734.4   & \textbf{0.83} \\
+100  & 90.9  & 26{,}440.5  & 10{,}929.7  & \textbf{0.41} \\
+1000 & 909.1 & 264{,}404   & 34{,}566.1  & \textbf{0.13} \\
+\bottomrule
+\end{tabular}
+\caption{The predeclared throughput prediction against what happened. It
+holds at batch size 1 and misses by roughly sevenfold at batch size 909.}
+\label{tab:pred}
+\end{table}
+
+At one agent the prediction is right to within six percent, which is the
+uninteresting case: batches of one, and the sync is the whole story. By a
+thousand agents it is wrong by a factor of about seven. Group commit does
+amortise --- 274 claims per second becomes 34,566 --- but throughput
+stops tracking the sync ceiling long before it reaches it.
+
+Where the time goes is visible in the residual. Subtract the measured sync cost
+from the wall time per commit cycle and the remainder rises from about
+0.21 ms at batch size 1 to about 22.9 ms at
+batch size 909. The commit loop is a single thread that deep-copies every
+claim in the batch, then canonicalizes, hashes and chain-links every record,
+before it issues the one write, and then wakes up to nine hundred blocked
+submitters afterwards. The copy is worth naming separately because we did not
+notice it until a review of this section: each claim is a ten-field structure
+with nine owned strings, and the loop clones all 909 of them, one at a time,
+before the first record is built. It is avoidable --- nothing reads those
+claims again afterwards --- and we have deliberately left it in place, because
+removing an allocation from the path these numbers were measured on would
+invalidate the table it appears under. Reporting it is the correct outcome
+here; fixing it is a change to make before the next run, not during the one
+being published. All of that per-record work is serial, in one thread, and
+grows with batch size in the way the residual does. So our account of
+Table~\ref{tab:pred} is that the prediction's error was not in the sync cost
+but in assuming everything else rounded to zero.
+
+We call that an account rather than a finding, and here is the caveat that
+forces the distinction. Our
+\texttt{sync\_us} figure comes from a probe that writes eleven bytes and syncs,
+fifty times over. A real batch of 909 records writes hundreds of kilobytes in
+one write--sync pair, and \texttt{F\_FULLFSYNC}'s cost is not independent of how
+many dirty bytes it has to push. So the probe's figure is a lower bound on what
+a large batch's sync really costs, and the prediction over-predicts at large
+batch size partly \emph{by construction}. Concretely: the arithmetic that says
+sync accounts for roughly 13\% of wall time at a thousand agents
+is an upper bound on the non-sync residual, not a decomposition of wall time
+into a sync part and a CPU part. Some of the other 87\% may be
+real sync cost the probe did not see. ``Serial per-record work dominates'' is
+our best account of the shape in Table~\ref{tab:pred}; it is not an attributed
+percentage split, and we would rather say so than publish a pie chart we cannot
+defend.
+
+\subsection{Latency, and which number is the honest one}
+
+Two latency figures come out of this run and they mean very different things.
+
+The unloaded one is the single-agent row: 3.9 ms at the median
+and 4.2 ms at the 99th percentile, with one claim in flight at
+a time. That is essentially one \texttt{F\_FULLFSYNC} and a little bookkeeping,
+and it is the number an architect sizing a fail-closed logging budget should
+use, because it is what the log costs to serve a request when nothing is queued
+behind it.
+
+The other is 52.3 ms at the 99th percentile with a thousand
+agents, and it is a \emph{closed-loop saturation} figure, not a service time.
+Every simulated agent submits with zero think time and blocks on its
+acknowledgement, so offered load is unbounded by construction and the system is
+saturated the moment more than a handful of agents are running. Little's law
+confirms it arithmetically: 34,566 claims per second times a median
+latency of 27.1 ms is about 937 requests in flight, against
+1{,}000 agents. The tail we measured is concurrency divided by throughput ---
+queueing delay we manufactured --- and quoting it as ``the log's p99'' would be
+a misreading of our own harness. It answers ``how bad does it get under
+unbounded load,'' which is a real question, but a different one.
+
+\subsection{The half we did not measure}
+
+We set out to answer two questions about the tree arrangement and answered
+one. The throughput half of the experiment never tested the topology axis at
+all.
+
+The reason is mundane and worth stating exactly: in the throughput harness the
+topology is used in one place, to write a label into the output file. The
+commit path builds no tree. There is no \texttt{Forest} insertion, no root
+recomputation, nothing on the write path that a topology could make faster or
+slower. The three throughput sweeps in our results directory are therefore the
+same experiment run three times and labelled differently, and the harness
+contains no mechanism by which a real topology effect could have appeared.
+
+\textbf{We are not claiming that topology has little effect on throughput. We
+did not test it.} That distinction is the whole reason this subsection exists.
+What the three runs are good for is a noise estimate on identical code: the
+spread between them is 4.3\%, 30.3\%,
+19.7\% and 2.0\% at 1, 10, 100 and 1{,}000 agents
+respectively. Three back-to-back runs of the same code on the same machine can
+differ by thirty percent, which is the precision every figure in this section
+should be read at --- and quoting the tightest row as ``our measurement
+precision'' would be cherry-picking.
+
+The same fact carries a second consequence: every throughput number here
+excludes Merkle tree maintenance entirely. A deployment that maintains the
+forest incrementally alongside each commit would be slower than every figure
+above, by an amount we did not measure.
+
+Finally, on portability. Do not carry these numbers to another platform
+without carrying the sync call with them. On macOS \texttt{File::sync\_data} is
+\texttt{F\_FULLFSYNC} and forces a drive-cache flush; on Linux the same Rust
+call is \texttt{fdatasync}, which on typical hardware does not. A Linux run of
+this harness may well look an order of magnitude faster while
+providing \emph{weaker} durability, and a comparison that does not quote both
+the call and its measured cost is not a comparison of anything.
+
 \section{What We Still Don't Know}
 \label{sec:unknown}
 
@@ -544,18 +783,34 @@ to let a root be printed without the sentence saying so, so that nobody reads a
 green tick as more than it is. That is a documentation defence against a
 structural problem, and I would not want to oversell it.
 
-We have no performance numbers. None. The log batches claims into a single
-sync and we have not measured what that costs, so we do not know whether the
-durability requirement is compatible with the action rates people want from
-agents, and we are not going to guess. Anyone who needs that number should
-treat this paper as silent on it rather than as reassuring.
+We do not know what the tree topology costs in throughput.
+Section~\ref{sec:measure} reports numbers for all three arrangements and then
+explains why they are not a comparison: the commit path we measured builds no
+tree, so the topology never reached the code whose speed we were timing. The
+question the sweep was designed to answer is still open, and answering it means
+building a harness that maintains the forest on the write path. Until somebody
+does that, nobody --- including us --- should read our three throughput columns
+as evidence that the choice is cheap.
 
-We have not measured the linkability cost of the tree topology. A single global
-tree reveals nothing about who acted, because membership distinguishes nobody.
-A tree per agent parallelises well and its key \emph{is} an agent identifier,
-so every action in it is linked to every other by construction. Those two facts
-point in opposite directions and we have implemented all three arrangements
-without measuring either axis.
+Nor do we know what the joint anchor buys. Section~\ref{sec:measure} derives
+the gap between a global tree and a per-agent forest, and that gap is real and
+grows with the fleet. The joint arrangement sits between them by design, and
+our metric cannot see it: the metric reads tree membership, and joint's
+membership is per-agent's membership. Measuring the coarser cross-agent
+ordering that the periodic anchor is supposed to provide needs a metric over
+ordering, which does not exist yet.
+
+We also do not know how the throughput and latency figures behave on a second
+machine, or on a second run. Section~\ref{sec:measure}'s timings are one host,
+one run per cell, and its own noise estimate says three back-to-back runs of
+identical code can differ by thirty percent. Treat every timing there as an
+order of magnitude with a plausible leading digit, not as a benchmark result.
+The linkability figures are not subject to this caveat and are not helped by
+it either: they would be the same on any machine because no machine produced
+them. And whether the durability
+requirement is compatible with the action rates people want from agents is
+\emph{still} not something we can answer in general --- we can now say what one
+machine did, which is a different and much smaller claim.
 
 The signer is a software key, and we should be blunt that this means the whole
 system currently has no defence against its operator at all---the custody

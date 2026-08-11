@@ -75,7 +75,7 @@ fn run() -> Result<ExitCode> {
             let acks = committer.submit(vec![c], now);
             match acks.into_iter().next() {
                 Some(Ok(a)) => {
-                    println!("acked step {} head {}", a.step_index, a.chain_head);
+                    println!("acked step {} head {}", a.step_index(), a.chain_head());
                     Ok(ExitCode::SUCCESS)
                 }
                 Some(Err(e)) => {

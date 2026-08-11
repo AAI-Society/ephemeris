@@ -1,12 +1,34 @@
 use crate::record::{Claim, Record};
-use crate::store::Store;
+use crate::store::{Store, StoreError};
 use std::path::Path;
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
+use std::thread::JoinHandle;
 
 /// What a caller receives once, and only once, its record is durable.
+///
+/// Fields are private and reachable only through the accessors below. This
+/// is not decoration: `Ack` is the enforcement mechanism for "never
+/// acknowledge before durable," and that guarantee only holds if nothing
+/// outside `commit.rs` can construct one. Public fields would let any caller
+/// — including a future "degrade gracefully under load" code path holding
+/// only a `QueueHandle` — synthesize an `Ack` for a claim that was never
+/// written, which is exactly the failure mode this type exists to rule out.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ack {
-    pub step_index: u64,
-    pub chain_head: String,
+    step_index: u64,
+    chain_head: String,
+}
+
+impl Ack {
+    /// The position this record occupies in the log.
+    pub fn step_index(&self) -> u64 {
+        self.step_index
+    }
+
+    /// The chain head after this record was appended.
+    pub fn chain_head(&self) -> &str {
+        &self.chain_head
+    }
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
@@ -63,13 +85,49 @@ impl Committer {
         }
     }
 
+    /// Test-only hook: make the *next* batch this committer writes land its
+    /// bytes for real and then fail as though `fsync` had failed, without
+    /// discarding anything already committed. Not part of the serving API.
+    ///
+    /// Deliberately does **not** set `unavailable` itself — that is
+    /// `submit_at`'s job once the resulting `Sync` error actually happens,
+    /// which is the behaviour under test.
+    #[doc(hidden)]
+    pub fn force_next_sync_to_fail_for_test(&mut self) {
+        self.store.force_next_sync_to_fail_for_test();
+    }
+
+    /// Successful `fsync` calls made by the underlying store.
+    pub fn sync_count(&self) -> u64 {
+        self.store.sync_count()
+    }
+
     /// Build records for `claims`, write them as one batch, and return one
-    /// result per claim in submission order.
+    /// result per claim in submission order. Each claim carries its own
+    /// `now_secs`, because a batch is assembled from submissions that arrived
+    /// at different times.
     ///
     /// Every member of a failed batch fails. There is no partial success: the
     /// batch shares one `fsync`, so either all of its bytes are durable or
     /// none of them are known to be.
-    pub fn submit(&mut self, claims: Vec<Claim>, now_secs: u64) -> Vec<Result<Ack, CommitError>> {
+    ///
+    /// A `Write` or `Sync` error from `append_batch` may have left partial or
+    /// duplicate bytes on disk — `append_batch` leaves in-memory state
+    /// untouched on error, but the file's on-disk offset can still have
+    /// diverged from it. Appending a later batch on top of that would corrupt
+    /// the segment (a torn frame followed by more bytes fails the digest
+    /// check on reopen) or duplicate a `step_index` (fails the chain check on
+    /// reopen), either of which can make already-durable, already-acked
+    /// records unreadable. So a `Write`/`Sync` failure latches this committer
+    /// `unavailable`: every batch after it is refused rather than appended
+    /// onto a file whose state might not match what `Store` believes it
+    /// wrote. A `RecordError` (canonicalization) does not write any bytes and
+    /// does not latch.
+    ///
+    /// **This is the only place an `Ack` is constructed in this crate.** The
+    /// concurrent path in `CommitQueue` routes results from here back to
+    /// submitters; it does not build them.
+    pub fn submit_at(&mut self, claims: Vec<(Claim, u64)>) -> Vec<Result<Ack, CommitError>> {
         let n = claims.len();
         if self.unavailable {
             return vec![
@@ -83,7 +141,7 @@ impl Committer {
         let first_step = self.store.next_step();
         let mut head = self.store.head();
 
-        for (i, c) in claims.into_iter().enumerate() {
+        for (i, (c, now_secs)) in claims.into_iter().enumerate() {
             let r = Record::new(c, first_step + i as u64, head, now_secs);
             match crate::chain::extend(head, &r) {
                 Ok(next) => head = next,
@@ -102,7 +160,224 @@ impl Committer {
                     })
                 })
                 .collect(),
-            Err(e) => vec![Err(CommitError::NotDurable { why: e.to_string() }); n],
+            Err(e) => {
+                // A `Write` or `Sync` error may have left bytes on disk that
+                // `Store`'s in-memory state does not know about. Appending
+                // more batches on top of that offset is how already-durable
+                // records get corrupted; see the doc comment above. Anything
+                // else (only `RecordError` reaches here) never touched the
+                // file, so it does not latch.
+                if matches!(e, StoreError::Write(_) | StoreError::Sync(_)) {
+                    self.unavailable = true;
+                }
+                vec![Err(CommitError::NotDurable { why: e.to_string() }); n]
+            }
         }
     }
+
+    /// One timestamp for the whole batch. Kept because the CLI and the Phase 1
+    /// tests submit a batch that was assembled at a single instant.
+    pub fn submit(&mut self, claims: Vec<Claim>, now_secs: u64) -> Vec<Result<Ack, CommitError>> {
+        self.submit_at(claims.into_iter().map(|c| (c, now_secs)).collect())
+    }
+}
+
+/// One claim on its way to the log, with somewhere to send the answer.
+struct Submission {
+    claim: Claim,
+    now_secs: u64,
+    reply: SyncSender<Result<Ack, CommitError>>,
+}
+
+/// Work, or the instruction to stop.
+///
+/// Stopping is an explicit message rather than "the last sender was dropped".
+/// Handles are cloneable and outlive the queue value, so waiting for every
+/// sender to drop would let one forgotten handle hang `shutdown` forever. The
+/// message travels the same channel as the work, so FIFO ordering guarantees
+/// everything submitted before the stop is committed before the loop exits.
+enum Msg {
+    Submit(Box<Submission>),
+    Stop,
+}
+
+/// What a completed run of the queue observed. Reported by `bench` so that a
+/// claims/second figure can be checked against the number of times the disk
+/// was actually made to commit.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct QueueStats {
+    pub batches: u64,
+    pub claims: u64,
+    pub fsyncs: u64,
+    pub batch_sizes: Vec<usize>,
+    /// Set when the commit thread ended by panicking rather than by
+    /// returning.
+    ///
+    /// A panicking commit thread takes its `QueueStats` with it, so `stop`
+    /// has nothing to report and every counter above is zero. Without this
+    /// flag those zeros are indistinguishable from a run that legitimately
+    /// committed nothing, and a caller that had already collected real
+    /// acknowledgements before the panic would publish real claim counts,
+    /// real throughput and real percentiles alongside `batches: 0`,
+    /// `fsyncs: 0` — a broken run reading as a healthy smaller one. That is
+    /// the same failure mode `submitted`/`failed` exist to prevent in
+    /// `bench::run::RunReport`, applied to the other half of the report.
+    ///
+    /// Every other field is meaningless when this is set; do not compute
+    /// with them.
+    pub worker_panicked: bool,
+}
+
+/// A commit loop fed by a channel: many submitters, one batching thread, one
+/// `fsync` per batch.
+///
+/// **The `Ack` guarantee crosses a thread boundary here and does not change.**
+/// The loop calls `Committer::submit_at`, which is the single place an `Ack`
+/// is constructed, and forwards the results to the submitters that are waiting
+/// for them. A submitter *receives* an `Ack` and has no way to build one, so
+/// "acknowledge before durable" remains inexpressible rather than merely
+/// discouraged.
+///
+/// Batching policy is "take whatever is queued when the loop wakes". There is
+/// no timer and no target batch size: a timer would trade latency for
+/// throughput according to a constant we chose, which would make the benchmark
+/// a measurement of that constant. Taking whatever has arrived makes batch size
+/// an observable of the offered load instead.
+pub struct CommitQueue {
+    tx: Option<Sender<Msg>>,
+    worker: Option<JoinHandle<QueueStats>>,
+}
+
+/// A cloneable submission handle. One per agent thread.
+#[derive(Clone)]
+pub struct QueueHandle {
+    tx: Sender<Msg>,
+}
+
+impl QueueHandle {
+    /// Submit one claim and block until the log has answered.
+    ///
+    /// Returns `NotDurable` rather than blocking forever if the commit loop is
+    /// gone. A caller waiting on an acknowledgement that will never arrive is
+    /// the same outage as a wrong answer and harder to diagnose.
+    pub fn submit(&self, claim: Claim, now_secs: u64) -> Result<Ack, CommitError> {
+        let (reply, answer) = sync_channel(1);
+        let gone = || CommitError::NotDurable {
+            why: "the commit loop is not running".to_string(),
+        };
+        self.tx
+            .send(Msg::Submit(Box::new(Submission {
+                claim,
+                now_secs,
+                reply,
+            })))
+            .map_err(|_| gone())?;
+        answer.recv().map_err(|_| gone())?
+    }
+}
+
+impl CommitQueue {
+    pub fn new(committer: Committer) -> Self {
+        let (tx, rx) = channel::<Msg>();
+        let worker = std::thread::spawn(move || run_loop(committer, rx));
+        Self {
+            tx: Some(tx),
+            worker: Some(worker),
+        }
+    }
+
+    pub fn handle(&self) -> QueueHandle {
+        QueueHandle {
+            tx: self.tx.clone().unwrap_or_else(dead_sender),
+        }
+    }
+
+    /// Stop accepting work, commit what is already queued, and report what
+    /// happened.
+    pub fn shutdown(mut self) -> QueueStats {
+        self.stop()
+    }
+
+    fn stop(&mut self) -> QueueStats {
+        if let Some(tx) = self.tx.take() {
+            // A closed channel means the loop already exited; nothing to stop.
+            let _ = tx.send(Msg::Stop);
+        }
+        match self.worker.take() {
+            // `join` returning `Err` means the commit loop unwound. The panic
+            // payload is dropped rather than resumed: `stop` is also called
+            // from `Drop`, where resuming would abort the process while
+            // another panic may already be unwinding. The fact of the panic
+            // is carried in the stats instead, so a caller can refuse to
+            // publish numbers rather than publishing zeros that look like a
+            // quiet run. See `QueueStats::worker_panicked`.
+            Some(w) => w.join().unwrap_or_else(|_| QueueStats {
+                worker_panicked: true,
+                ..QueueStats::default()
+            }),
+            None => QueueStats::default(),
+        }
+    }
+}
+
+impl Drop for CommitQueue {
+    fn drop(&mut self) {
+        let _ = self.stop();
+    }
+}
+
+/// A sender whose receiver is already gone, handed out if `handle()` is somehow
+/// called after the queue stopped. Every submission on it is refused rather
+/// than panicking, so even a refactor that breaks the invariant fails closed.
+fn dead_sender() -> Sender<Msg> {
+    let (tx, rx) = channel();
+    drop(rx);
+    tx
+}
+
+fn run_loop(mut committer: Committer, rx: Receiver<Msg>) -> QueueStats {
+    let mut stats = QueueStats::default();
+    loop {
+        // Block for the first message. `Err` means every handle is gone.
+        let first = match rx.recv() {
+            Ok(Msg::Submit(s)) => s,
+            Ok(Msg::Stop) | Err(_) => break,
+        };
+        let mut batch = vec![first];
+        // Take whatever else has already arrived. No timer: see the type docs.
+        // A `Stop` found while draining ends the loop *after* this batch
+        // commits, so nothing already submitted is dropped on the floor.
+        let mut stopping = false;
+        while let Ok(msg) = rx.try_recv() {
+            match msg {
+                Msg::Submit(s) => batch.push(s),
+                Msg::Stop => {
+                    stopping = true;
+                    break;
+                }
+            }
+        }
+
+        let pairs: Vec<(Claim, u64)> = batch
+            .iter()
+            .map(|s| (s.claim.clone(), s.now_secs))
+            .collect();
+        let results = committer.submit_at(pairs);
+
+        stats.batches += 1;
+        stats.claims += batch.len() as u64;
+        stats.batch_sizes.push(batch.len());
+        stats.fsyncs = committer.sync_count();
+
+        for (s, r) in batch.into_iter().zip(results) {
+            // A submitter that has given up is not an error worth stopping
+            // for; its record is durable either way.
+            let _ = s.reply.send(r);
+        }
+
+        if stopping {
+            break;
+        }
+    }
+    stats
 }

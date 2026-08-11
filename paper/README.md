@@ -4,10 +4,10 @@ LaTeX source for *Internal Consistency Is Not Evidence: Custody, Durability,
 and the Limits of a Tamper-Evident Log*.
 
 **Status: working draft for co-author review — not yet submitted.** All
-sections are written. Unlike the sibling `transit` paper, there is no
-placeholder section, because this paper deliberately reports **no
-measurements**: Phase 1 of `ephemeris` ships no benchmark, and §7 says so in
-those terms rather than leaving a gap to be filled in later.
+sections are written; there is no placeholder section. §7 ("What It Costs, and
+What We Got Wrong") reports the Phase 2 measurements, and §8 ("What We Still
+Don't Know") states what remains open after them — including the fact that the
+throughput half of the experiment never tested the topology axis at all.
 
 **Prose style.** The expository register shared with the sibling papers: first
 person, concrete case before abstraction, ordinary words in place of jargon,
@@ -37,10 +37,40 @@ unavoidable, and the durability finding is a second, separable result. Do not
 promote §4 to the front in editing: it is the more novel finding but the less
 structural one, and leading with it makes the paper look like a bug report.
 
-**No fabricated numbers.** This paper reports no throughput, latency, or
-linkability figures, because none were measured. §7 states that explicitly.
-If a future revision adds them, they must come from `bench` in Phase 2 and be
-generated rather than typed.
+**Where the numbers come from.** Every figure in §7 is read out of
+`../results/*.json`, produced by
+`cargo run --release --features bench --bin ephemeris-bench`. The
+**throughput and latency** figures are **one machine's** — an Apple M5 Max, 18
+logical cores, macOS, `File::sync_data` = `F_FULLFSYNC` at a measured 3438 µs —
+**one run per cell, no warm-up, no repetitions**. The library state measured is
+commit `25e56f1`; the bench binary that reproduces it was added in `d603168`.
+
+**The linkability figures are not measurements and are not this machine's.**
+The bench binary hands `linkability::measure` an agent list built from
+`--agents` and `--claims-per-agent` and never reads the throughput run's
+report, so those figures are a closed-form function of `tree_for`: identical on
+any host, and identical had the run acked nothing. §7.1 must describe them as
+derived, never as measured, and must not let the "one machine, one afternoon"
+framing that correctly qualifies §7.2–§7.4 spill onto them — that framing is
+exactly inverted for §7.1.
+
+Three things the section is required to keep saying, because a review caught
+each of them being got wrong the first time:
+
+- **The topology axis is declared untested.** The commit path builds no tree,
+  so the three throughput sweeps are one experiment repeated three times. They
+  are used only as a run-to-run noise estimate (4.3%–30.3% spread). The paper
+  must never say "topology has little effect on throughput".
+- **Joint vs. per-agent linkability is a tautology**, not a result:
+  `Joint::tree_for` is byte-identical to `PerAgent::tree_for` and the metric
+  never reads the anchor policy. Global vs. per-agent is the real comparison.
+- **The linkability result is derived, not measured**, per the paragraph
+  above — and the flat per-agent 20.0 is the stipulated uniform workload, not
+  an observed distribution. If an edit reintroduces "we measure, on one
+  machine, what the tree arrangement costs in linkability", revert it.
+
+`results/README.md` is the authoritative reading of these numbers. If §7 and
+that file ever disagree, that file wins.
 
 ## Build
 
@@ -84,13 +114,31 @@ same commit.
    the claim to "on the systems we tested". Do not leave it asserted as
    universal on the strength of one platform.
 
-4. **The generalisation in §7.** The paper says it "thinks" the broken
+4. **The generalisation in §8.** The paper says it "thinks" the broken
    fault-injection pattern is common and explicitly labels that a hypothesis.
    Keep it labelled. If anyone surveys other durability suites before
    submission, the result replaces the hypothesis; absent that, the hedge
    stays.
 
-5. **arXiv metadata.** Suggested categories: cs.CR (primary), cs.DC and cs.SE
+5. **Re-derive every figure in §7 against `../results/*.json`.** The tables are
+   typed into the `.tex`, not generated, so they can drift from the JSON
+   silently. Before submission, re-check each cell of Tables 1 and 2, the
+   latency figures, the 0.21 ms / 22.9 ms residuals, the 937-in-flight Little's
+   law figure, and the four noise-spread percentages. Numbers that cannot be
+   re-derived from the committed JSON must be cut, not rounded.
+
+6. **Re-state the two things the numbers do not license.** §7 must still say
+   that the topology axis was untested and that joint-vs-per-agent linkability
+   is a tautology. If an edit softens either into "topology made little
+   difference" or "joint's anchoring was evaluated", revert it.
+
+7. **Repeat the run before submission, ideally on a second machine.** One host,
+   one run per cell, with a self-reported noise floor of up to 30%, is thin for
+   a published figure. Either add repetitions and a second platform (quoting
+   its `sync_call` and `sync_us`), or keep §7's framing that these are one
+   machine's numbers and not a benchmark.
+
+8. **arXiv metadata.** Suggested categories: cs.CR (primary), cs.DC and cs.SE
    (secondary). Licence: Apache-2.0, matching the implementation.
 
 ## Files

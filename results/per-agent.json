@@ -1,0 +1,149 @@
+{
+  "topology": "per-agent",
+  "host": {
+    "os": "macos",
+    "arch": "aarch64",
+    "cpu_model": "Apple M5 Max",
+    "logical_cores": 18,
+    "sync_call": "std::fs::File::sync_data",
+    "sync_us": 3438.2574999999997,
+    "crate_commit": "25e56f1"
+  },
+  "prediction": "All three topologies share one store and one fsync per batch, so throughput is expected to be mean_batch_size * (1e6 / sync_us) claims/second for every topology, and the topology axis is expected to barely move it. Linkability is expected to rank global best, per-agent worst, and joint exactly equal to per-agent.",
+  "throughput": [
+    {
+      "topology": "per-agent",
+      "agents": 1,
+      "submitted": 20,
+      "claims": 20,
+      "failed": 0,
+      "wall_secs": 0.069897042,
+      "claims_per_sec": 286.1351414556284,
+      "latency": {
+        "p50_us": 3204.667,
+        "p95_us": 4113.2080000000005,
+        "p99_us": 4212.166,
+        "max_us": 4212.166
+      },
+      "batches": {
+        "count": 20,
+        "mean_size": 1.0,
+        "max_size": 1
+      },
+      "fsyncs": 20
+    },
+    {
+      "topology": "per-agent",
+      "agents": 10,
+      "submitted": 200,
+      "claims": 200,
+      "failed": 0,
+      "wall_secs": 0.155310167,
+      "claims_per_sec": 1287.7457017994193,
+      "latency": {
+        "p50_us": 7995.959000000001,
+        "p95_us": 8122.334,
+        "p99_us": 8307.834,
+        "max_us": 8315.542000000001
+      },
+      "batches": {
+        "count": 39,
+        "mean_size": 5.128205128205129,
+        "max_size": 9
+      },
+      "fsyncs": 39
+    },
+    {
+      "topology": "per-agent",
+      "agents": 100,
+      "submitted": 2000,
+      "claims": 2000,
+      "failed": 0,
+      "wall_secs": 0.155689875,
+      "claims_per_sec": 12846.050521910945,
+      "latency": {
+        "p50_us": 7224.708,
+        "p95_us": 9936.333,
+        "p99_us": 13681.667,
+        "max_us": 15723.958999999999
+      },
+      "batches": {
+        "count": 22,
+        "mean_size": 90.9090909090909,
+        "max_size": 100
+      },
+      "fsyncs": 22
+    },
+    {
+      "topology": "per-agent",
+      "agents": 1000,
+      "submitted": 20000,
+      "claims": 20000,
+      "failed": 0,
+      "wall_secs": 0.569650041,
+      "claims_per_sec": 35109.27509965719,
+      "latency": {
+        "p50_us": 27058.291,
+        "p95_us": 34105.791000000005,
+        "p99_us": 54138.5,
+        "max_us": 55141.708
+      },
+      "batches": {
+        "count": 22,
+        "mean_size": 909.0909090909091,
+        "max_size": 1000
+      },
+      "fsyncs": 22
+    }
+  ],
+  "linkability": [
+    {
+      "topology": "per-agent",
+      "actions": 20,
+      "agents": 1,
+      "trees": 1,
+      "effective_anonymity_set": 20.0,
+      "entropy_bits": 0.0,
+      "singleton_trees": 0,
+      "min_tree": 20,
+      "median_tree": 20,
+      "max_tree": 20
+    },
+    {
+      "topology": "per-agent",
+      "actions": 200,
+      "agents": 10,
+      "trees": 10,
+      "effective_anonymity_set": 20.0,
+      "entropy_bits": 3.321928094887362,
+      "singleton_trees": 0,
+      "min_tree": 20,
+      "median_tree": 20,
+      "max_tree": 20
+    },
+    {
+      "topology": "per-agent",
+      "actions": 2000,
+      "agents": 100,
+      "trees": 100,
+      "effective_anonymity_set": 20.0,
+      "entropy_bits": 6.6438561897747395,
+      "singleton_trees": 0,
+      "min_tree": 20,
+      "median_tree": 20,
+      "max_tree": 20
+    },
+    {
+      "topology": "per-agent",
+      "actions": 20000,
+      "agents": 1000,
+      "trees": 1000,
+      "effective_anonymity_set": 20.0,
+      "entropy_bits": 9.965784284662018,
+      "singleton_trees": 0,
+      "min_tree": 20,
+      "median_tree": 20,
+      "max_tree": 20
+    }
+  ]
+}

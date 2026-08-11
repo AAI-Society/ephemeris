@@ -6,6 +6,13 @@ rust-version = "1.90"
 license = "Apache-2.0"
 description = "An append-only evidence log for Proof-of-Control records"
 repository = "https://github.com/Task-force-for-AI-agents-in-Healthcare/ephemeris"
+# Adding the `ephemeris-bench` target made `cargo run` ambiguous, which broke
+# the three `cargo run -- …` invocations in CI and every documented usage
+# example. `required-features` does not disambiguate: cargo counts the target
+# whether or not the feature is on. CI's `rust` job fails earlier, on the
+# missing DEPS_READ_TOKEN, so nothing caught this — a masked break is exactly
+# what a blocked pipeline hides.
+default-run = "ephemeris"
 
 [lib]
 name = "ephemeris"
@@ -30,6 +37,28 @@ rand_chacha = "0.3"
 rand_core = "0.6"
 
 transit = { git = "https://github.com/Task-force-for-AI-agents-in-Healthcare/transit.git", rev = "3e10e13" }
+occultation = { git = "https://github.com/Task-force-for-AI-agents-in-Healthcare/occultation.git", rev = "3f50bdd", optional = true }
+tempfile = { version = "3", optional = true }
+
+[features]
+# `bench` pulls occultation, which pulls blstrs and the BLS12-381 stack. None
+# of that is compiled or linked unless the feature is on.
+#
+# It does NOT follow that a default build can ignore occultation. Cargo
+# resolves the whole dependency graph — optional dependencies included —
+# before it resolves features, so `cargo build` with no features still has to
+# be able to FETCH the occultation git source, and fails with "failed to load
+# source for dependency `occultation`" if it cannot. Two private repos are
+# therefore required to build this crate at all, where before this branch one
+# was: a contributor with read access to transit but not occultation could
+# build before, and cannot now. Compilation is feature-gated; resolution is
+# not.
+bench = ["dep:occultation", "dep:tempfile"]
+
+[[bin]]
+name = "ephemeris-bench"
+path = "src/bin/ephemeris-bench.rs"
+required-features = ["bench"]
 
 [dev-dependencies]
 tempfile = "3"

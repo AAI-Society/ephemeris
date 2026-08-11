@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "bench")]
+pub mod bench;
 pub mod chain;
 pub mod commit;
 pub mod record;
