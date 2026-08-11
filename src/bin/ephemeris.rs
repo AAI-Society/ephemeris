@@ -50,13 +50,16 @@ enum Cmd {
 /// A fixed seed so Phase 1 output is reproducible. A persistent software key
 /// would imply a custody story this build does not have.
 ///
-/// **Do not carry this constant across to `TeeSigner`.** It is safe here only
-/// because a `SoftwareSigner` claims nothing: its roots render `SOFTWARE` and
-/// the rendering says so. `TeeSigner::generate` takes a seed of the same shape
-/// and expands it into a key the platform will attest — so swapping the signer
-/// on this line, and nothing else, would publish an attested key whose private
-/// half is a literal three lines above the call. See the seed warning on
-/// `TeeSigner::generate`.
+/// This is safe here only because `SoftwareSigner` claims nothing: its roots
+/// render `SOFTWARE`, and that label already concedes "no defence against the
+/// operator" — a predictable key betrays nothing a reader wasn't already
+/// told. `TeeSigner` had a comparable seed parameter once; it does not
+/// anymore. `TeeSigner::generate` and `generate_at` take no seed at all and
+/// draw the key from the OS CSPRNG unconditionally, because their roots
+/// render `custody TEE` — a claim a predictable key would falsify — so the
+/// constant that is harmless on this line has no counterpart to be copied
+/// into. If a `TeeSigner` constructor is ever added that accepts key
+/// material from outside the TEE, this constant is not a template for it.
 const DEV_SEED: [u8; 32] = [7u8; 32];
 
 fn main() -> ExitCode {

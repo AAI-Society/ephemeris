@@ -34,7 +34,7 @@ hex = "0.4"
 humantime = "2"
 ed25519-dalek = { version = "2", features = ["rand_core", "pkcs8"] }
 rand_chacha = "0.3"
-rand_core = "0.6"
+rand_core = { version = "0.6", features = ["getrandom"] }
 
 transit = { git = "https://github.com/Task-force-for-AI-agents-in-Healthcare/transit.git", rev = "3e10e13" }
 occultation = { git = "https://github.com/Task-force-for-AI-agents-in-Healthcare/occultation.git", rev = "3f50bdd", optional = true }

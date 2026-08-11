@@ -205,6 +205,20 @@ pub struct SoftwareSigner {
 }
 
 impl SoftwareSigner {
+    /// Derive the signing key from `seed` with a seeded RNG.
+    ///
+    /// This determinism is deliberate, unlike `TeeSigner::generate`'s former
+    /// seed parameter (removed — see `tee.rs`). The two cases are not
+    /// symmetric: a software key makes no custody claim beyond "the
+    /// operator holds it", which is exactly as true of a key derived from a
+    /// constant as of one drawn from the OS CSPRNG — `Custody::software()`'s
+    /// rendering already says "no defence against the operator", so a
+    /// predictable key betrays nothing the label did not already concede.
+    /// Reproducibility is worth having here: it makes the same log signed
+    /// twice byte-identical, which is useful for tests and for anyone
+    /// diffing output. A `TeeSigner`, by contrast, renders `custody TEE`, a
+    /// claim that a predictable key would falsify outright, so it was made
+    /// unforgeable at the type level instead of merely documented against.
     pub fn generate(seed: [u8; 32]) -> Self {
         let mut rng = rand_chacha::ChaCha20Rng::from_seed(seed);
         Self {
