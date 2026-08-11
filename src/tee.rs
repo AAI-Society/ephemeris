@@ -33,6 +33,28 @@ impl TeeSigner {
     /// quote could sign roots claiming hardware custody it could not
     /// demonstrate, which is precisely the claim this type exists to make
     /// checkable.
+    ///
+    /// # The seed is the private key
+    ///
+    /// `seed` is expanded into the signing key and nothing else. **It must be
+    /// unpredictable and must never be reused.** The quote commits to the
+    /// *public* half; the private half is whatever these 32 bytes determine,
+    /// and no property of the platform recovers it if the caller chose badly.
+    /// A key derived from a constant is a key held by everybody who can read
+    /// the constant, and a quote over such a key is a perfectly true statement
+    /// about a worthless key — the platform will attest it, `parallax` will
+    /// verify the binding, and every root will render `custody TEE` while
+    /// anyone with the source can forge the signature. That is the exact
+    /// failure this crate's prose warns readers about, arriving from inside.
+    ///
+    /// Concretely, do not copy `DEV_SEED` in `src/bin/ephemeris.rs`. It is
+    /// `[7u8; 32]`, a literal in a source tree, and it is safe there only
+    /// because the CLI constructs a `SoftwareSigner` — a labelled placeholder
+    /// that claims nothing — and never a `TeeSigner`. Wiring this type into
+    /// that call site without also changing where the seed comes from would
+    /// ship an attested key whose private half is published alongside it.
+    /// The tests pass `[7u8; 32]` for the same reason and with the same
+    /// licence: they never reach a real platform.
     pub fn generate(seed: [u8; 32]) -> Result<Self, TeeError> {
         Self::generate_at(
             std::path::Path::new(parallax::attest::tsm::TSM_REPORT_DIR),
@@ -46,6 +68,17 @@ impl TeeSigner {
     /// real path is `/sys`, which no test can create, so the failure paths
     /// would otherwise be untested — and the failure paths are where
     /// fail-closed either holds or does not.
+    ///
+    /// `seed` carries the same requirement as [`TeeSigner::generate`]'s and it
+    /// is repeated here rather than referenced, because this is the entry
+    /// point a caller reaches for when they want control over the arguments:
+    /// **the seed is the private key.** It must be unpredictable and never
+    /// reused. A constant seed produces a key that everyone who can read the
+    /// constant also holds, and the quote over it will verify anyway —
+    /// hardware custody means nothing about a key the caller published. The
+    /// literal `[7u8; 32]` used throughout this crate's tests, and `DEV_SEED`
+    /// in `src/bin/ephemeris.rs`, are examples of what not to pass anywhere a
+    /// real platform is on the other end.
     pub fn generate_at(base: &std::path::Path, seed: [u8; 32]) -> Result<Self, TeeError> {
         let mut rng = rand_chacha::ChaCha20Rng::from_seed(seed);
         let key = SigningKey::generate(&mut rng);

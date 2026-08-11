@@ -74,9 +74,10 @@ acknowledge a claim it has not durably written**.
 
 It is deliberately unbalanced in what it emphasises. The proof code is
 exhaustively verified and the durability path is built so the mistake cannot
-be expressed. The signer is a labelled placeholder. That is the right split
-for Phase 1, because the proofs and the durability are what a later TEE signer
-would sit on top of, and a TEE signer over a wrong Merkle implementation is a
+be expressed. The signer the default build uses is a labelled placeholder.
+That is the right split, because the proofs and the durability are what the
+TEE signer — which now exists, behind a feature, untested on hardware — sits
+on top of, and a TEE signer over a wrong Merkle implementation is a
 hardware-attested wrong answer.
 
 ---
@@ -184,8 +185,12 @@ build cannot emit a root claiming hardware custody, and that is now a property
 of the type rather than of a convention: `Custody` is opaque over a private
 enum whose hardware variant is itself compiled out, so there is no expression
 anywhere — in this crate or downstream — that evaluates to hardware custody
-without the feature. A `compile_fail` doctest and an out-of-tree probe both
-check it.
+without the feature. The check that the forgery no longer compiles is a
+`compile_fail` doctest on `render`, holding the exact literal that used to
+work; the out-of-tree tests alongside it are a weaker, different thing — they
+confirm a real `SoftwareSigner` still renders `SOFTWARE` and never `TEE`,
+which catches a behavioural regression rather than proving the forgery
+impossible. They could not attempt the forgery: it does not compile.
 
 **Compiled, never run.** A TEE signer exists behind `--features tee`. It
 generates a key, derives `report_data` by calling `parallax`'s own

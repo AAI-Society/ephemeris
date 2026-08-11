@@ -51,6 +51,14 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --all-targets
 
+      # `--all-targets` does NOT imply `--doc` — cargo excludes doctests from
+      # it. The `compile_fail` doctest on `SignedRoot::render` is the check
+      # that a forged hardware-custody literal does not compile, which is this
+      # branch's central safety property, and without this line it would run in
+      # CI only as a side effect of the feature steps below. If those were ever
+      # skipped or gated, the property would stop being checked silently.
+      - run: cargo test --doc
+
       # Feature-gated code that CI does not build stops compiling quietly.
       # `bench` pulls occultation (see the comment on the auth step above for
       # why that needs no new CI step) and the whole BLS12-381 stack behind
