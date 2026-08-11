@@ -30,18 +30,29 @@ jobs:
       # one repo), so one token and one step already cover all three private
       # dependencies — neither occultation nor parallax needed a new auth step
       # here.
-      - name: authenticate to the private dependency repos
+      #
+      # A MISSING SECRET IS NOT AN ERROR. It was, while the dependencies were
+      # private: no token meant no clone, and failing here gave a clear reason
+      # instead of cargo's opaque one. Once they are public it is the opposite
+      # — an anonymous clone is correct and refusing to build would be an
+      # outage guarding nothing. So this step skips rather than fails, and the
+      # notice below says exactly where the build will break if a dependency
+      # is in fact still private. That keeps CI working across the switch,
+      # without needing the secret's removal and the repos' publication to be
+      # coordinated.
+      - name: authenticate to the dependency repos, if they are still private
         env:
           DEPS_READ_TOKEN: ${{ secrets.DEPS_READ_TOKEN }}
         run: |
           if [ -z "${DEPS_READ_TOKEN}" ]; then
-            echo "::error::DEPS_READ_TOKEN is not set. ephemeris depends on the"
-            echo "::error::PRIVATE transit, occultation and parallax repos and"
-            echo "::error::the default GITHUB_TOKEN cannot read them. Create a"
-            echo "::error::fine-grained PAT with read access to the org's"
-            echo "::error::repos and add it as the DEPS_READ_TOKEN repository"
-            echo "::error::secret."
-            exit 1
+            echo "::notice::DEPS_READ_TOKEN is not set — cloning transit,"
+            echo "::notice::occultation and parallax anonymously. That is"
+            echo "::notice::correct once they are public. If any is still"
+            echo "::notice::private, the build fails at the next cargo step"
+            echo "::notice::with 'could not read Username'; set the secret to"
+            echo "::notice::a fine-grained PAT with Contents: Read-only on the"
+            echo "::notice::org's repos."
+            exit 0
           fi
           git config --global \
             url."https://x-access-token:${DEPS_READ_TOKEN}@github.com/".insteadOf \
