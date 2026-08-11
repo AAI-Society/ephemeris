@@ -11,6 +11,13 @@ use std::time::Instant;
 pub enum RunError {
     #[error("could not open the store for the run: {0}")]
     Store(#[from] StoreError),
+    /// The store could not be reopened *after* the run, for verification.
+    /// Distinct from `Store` because the two are opposite diagnoses: that one
+    /// means the run never started, this one means the run finished and then
+    /// its evidence could not be read back — which is itself a reason not to
+    /// publish its numbers, not a setup problem.
+    #[error("the run finished but its store could not be reopened to verify it: {0}")]
+    NotVerifiable(StoreError),
     #[error("an agent thread panicked, so this run measured nothing")]
     AgentPanicked,
     #[error(
@@ -206,7 +213,7 @@ pub fn run(cfg: &RunConfig, dir: &Path) -> Result<RunReport, RunError> {
 /// this reopen races nothing. It is outside the timed window by
 /// construction: `run` captures `wall` before shutting the queue down.
 pub fn verify_durable(dir: &Path, acked: usize) -> Result<(), RunError> {
-    let store = Store::open(dir)?;
+    let store = Store::open(dir).map_err(RunError::NotVerifiable)?;
     let recovered = store.records();
     if recovered.len() != acked {
         return Err(RunError::NotDurable {

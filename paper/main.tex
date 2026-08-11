@@ -553,7 +553,7 @@ Max with 18 logical cores running macOS, where \texttt{File::sync\_data} is
 \texttt{F\_FULLFSYNC} and a measured probe puts one call at
 3438 us. Every throughput and latency number below is a fact about
 that machine on that afternoon, not a property of the design, and one half of
-what we set out to measure we did not manage to measure at all. We say which
+what we set out to settle we did not settle at all. We say which
 half. The linkability numbers in Section~7.1 are the one exception, in the
 opposite direction: they were not timed and are not this machine's, for the
 reason given there.
@@ -610,9 +610,9 @@ It is 20.0 at one agent and 20.0 at a thousand, because every tree contains
 exactly one agent's twenty actions and membership in it names that agent.
 That flat 20.0 is the workload we stipulated, not a distribution we observed:
 every simulated agent submits exactly twenty claims. The effective set is the
-size-weighted mean of the squared per-tree action counts, which collapses to
-one agent's own action count only when every agent contributes the same
-number. Real fleets are not uniformly active, so a real deployment's per-agent
+size-weighted mean of the per-tree action counts --- each tree counted in
+proportion to how many actions it holds --- which collapses to one agent's own
+action count only when every agent contributes the same number. Real fleets are not uniformly active, so a real deployment's per-agent
 figure would be that weighted mean rather than a constant, dragged above the
 plain average by whichever agents are busiest. What does not depend on the
 uniformity is the
@@ -737,8 +737,9 @@ unbounded load,'' which is a real question, but a different one.
 
 \subsection{The half we did not measure}
 
-We set out to measure two axes and measured one. The throughput half of the
-experiment never tested the topology axis at all.
+We set out to answer two questions about the tree arrangement and answered
+one. The throughput half of the experiment never tested the topology axis at
+all.
 
 The reason is mundane and worth stating exactly: in the throughput harness the
 topology is used in one place, to write a label into the output file. The
@@ -791,7 +792,7 @@ building a harness that maintains the forest on the write path. Until somebody
 does that, nobody --- including us --- should read our three throughput columns
 as evidence that the choice is cheap.
 
-Nor do we know what the joint anchor buys. Section~\ref{sec:measure} measures
+Nor do we know what the joint anchor buys. Section~\ref{sec:measure} derives
 the gap between a global tree and a per-agent forest, and that gap is real and
 grows with the fleet. The joint arrangement sits between them by design, and
 our metric cannot see it: the metric reads tree membership, and joint's
@@ -799,11 +800,14 @@ membership is per-agent's membership. Measuring the coarser cross-agent
 ordering that the periodic anchor is supposed to provide needs a metric over
 ordering, which does not exist yet.
 
-We also do not know how any of these figures behave on a second machine, or on
-a second run. Section~\ref{sec:measure} is one host, one run per cell, and its
-own noise estimate says three back-to-back runs of identical code can differ by
-thirty percent. Treat every number there as an order of magnitude with a
-plausible leading digit, not as a benchmark result. And whether the durability
+We also do not know how the throughput and latency figures behave on a second
+machine, or on a second run. Section~\ref{sec:measure}'s timings are one host,
+one run per cell, and its own noise estimate says three back-to-back runs of
+identical code can differ by thirty percent. Treat every timing there as an
+order of magnitude with a plausible leading digit, not as a benchmark result.
+The linkability figures are not subject to this caveat and are not helped by
+it either: they would be the same on any machine because no machine produced
+them. And whether the durability
 requirement is compatible with the action rates people want from agents is
 \emph{still} not something we can answer in general --- we can now say what one
 machine did, which is a different and much smaller claim.

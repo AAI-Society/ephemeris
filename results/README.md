@@ -157,9 +157,12 @@ disk. "We measured linkability" is the wrong phrase; anyone with
 One artefact of the derivation to flag, because it is easy to over-read. The
 flat **20.0** in the `per-agent` column is the *stipulated uniform workload*,
 not an observed distribution: the harness gives every agent exactly
-`--claims-per-agent` actions. `effective_anonymity_set` is `sum(n_i^2) / N`,
-the size-weighted mean of squared per-tree action counts, which equals one
-agent's own action count only when every agent contributed the same number —
+`--claims-per-agent` actions. `effective_anonymity_set` is `sum(n_i^2) / N`
+with `N = sum(n_i)` — the size-weighted mean of the per-tree action counts,
+each tree weighted by `n_i / N`, its share of the population. (The squaring
+*is* the weighting; it is not a mean of squares, which would have units of
+actions squared.) It equals one agent's own action count only when every
+agent contributed the same number —
 see the field's doc comment in `src/bench/linkability.rs`. Real fleets are not
 uniformly active, so a real per-agent forest's figure would be that
 size-weighted mean, pulled above the arithmetic mean by the busiest agents.

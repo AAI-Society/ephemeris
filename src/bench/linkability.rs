@@ -47,8 +47,11 @@ pub struct LinkabilityReport {
     /// Distinct trees the topology assigned — the observable partition.
     pub trees: usize,
     /// Expected number of actions an observed action is indistinguishable
-    /// from: `sum(n_i^2) / N`, the size-weighted mean of squared per-tree
-    /// action counts. Equal to `actions` when one tree holds everything. When
+    /// from: `sum(n_i^2) / N` with `N = sum(n_i)` — the size-weighted mean of
+    /// the per-tree action counts, each tree weighted by `n_i / N`, its share
+    /// of the population. The squaring *is* the weighting; this is not a mean
+    /// of squares, which would have units of actions squared.
+    /// Equal to `actions` when one tree holds everything. When
     /// each agent has its own tree, this equals that agent's own action count
     /// only if every agent contributed the same number of actions; with
     /// unequal per-agent counts it is the size-weighted mean described above,
