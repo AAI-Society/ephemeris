@@ -29,12 +29,15 @@ The prediction was `claims_per_sec ≈ mean_batch_size * (1e6 / sync_us)`. Using
 the `global` file's rows (agents = 1, 10, 100, 1000), the ratio of actual to
 predicted is:
 
+(predicted = `mean batch × 1e6/3438.2575`, i.e. × 290.845 calls/s, carried
+at full precision rather than from the rounded 290.9)
+
 | agents | mean batch | predicted claims/s | actual claims/s | actual / predicted |
 |---|---|---|---|---|
-| 1 | 1.0 | 290.9 | 274.1 | **0.94** |
+| 1 | 1.0 | 290.8 | 274.1 | **0.94** |
 | 10 | 7.14 | 2077.5 | 1734.4 | **0.83** |
-| 100 | 90.9 | 26,440.9 | 10,929.7 | **0.41** |
-| 1000 | 909.1 | 264,409 | 34,566.1 | **0.13** |
+| 100 | 90.9 | 26,440.5 | 10,929.7 | **0.41** |
+| 1000 | 909.1 | 264,404 | 34,566.1 | **0.13** |
 
 The `per-agent` and `joint` files show the same pattern at the same agent
 counts, within the run-to-run noise quantified in section 3. The prediction

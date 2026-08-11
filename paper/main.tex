@@ -148,7 +148,7 @@ Finally we measure, on one machine, what the tree arrangement costs in
 linkability. A single global tree's effective anonymity set grows with the
 fleet; a tree per agent pins it at one agent's actions no matter how large the
 fleet gets, so the gap widens without bound. We also record that our
-pre-registered throughput prediction failed by sevenfold at high batch size,
+predeclared throughput prediction failed by sevenfold at high batch size,
 and that the other half of the experiment --- what the arrangement costs in
 throughput --- was never actually tested, for a reason we explain rather than
 paper over.}
@@ -557,7 +557,8 @@ measure we did not manage to measure at all. We say which half.
 The harness runs 1, 10, 100 and 1{,}000 simulated agents, each submitting 20
 claims and blocking on its acknowledgement, against each of the three tree
 arrangements the crate implements: one global tree, one tree per agent, and
-one tree per agent with a periodic joint anchor.
+one tree per agent with a periodic joint anchor --- with a caveat about what
+that meant for the throughput half, stated in Section~7.4.
 
 \subsection{The linkability result, which is the one that matters}
 
@@ -596,12 +597,15 @@ $\log_2(\text{agents})$ to two decimals, and that is the point: every agent
 added to the fleet adds information the tree structure leaks, and none of it is
 shared with anybody.
 
-So the anonymity gap between the two arrangements widens without bound as the
-deployment grows. This is the concrete form of an objection we had previously
-only stated: a per-agent forest is the arrangement that parallelises and shards
-naturally, and it is also the arrangement whose keys are agent identifiers.
-Anyone reaching for it because it is operationally convenient should see
-Table~\ref{tab:link} first.
+So the anonymity gap between the two arrangements widens without bound as
+the deployment grows. This is the concrete form of an objection we had
+previously only stated: a per-agent forest is the arrangement people reach
+for because its trees are independent and shard by agent with no shared
+append point --- whether that actually buys throughput is something we did
+not measure, for the reason given at the end of this section --- and it is
+also the arrangement whose keys are agent identifiers. Anyone reaching for
+it because it is operationally convenient should see Table~\ref{tab:link}
+first.
 
 We must be exact about what this does \emph{not} cover. The joint arrangement
 produces linkability figures identical to the per-agent one, and that is a
@@ -635,7 +639,7 @@ agents & mean batch & predicted claims/s & actual claims/s & actual / predicted 
 1000 & 909.1 & 264{,}404   & 34{,}566.1  & \textbf{0.13} \\
 \bottomrule
 \end{tabular}
-\caption{The pre-registered throughput prediction against what happened. It
+\caption{The predeclared throughput prediction against what happened. It
 holds at batch size 1 and misses by roughly sevenfold at batch size 909.}
 \label{tab:pred}
 \end{table}
@@ -727,7 +731,7 @@ Finally, on portability. Do not carry these numbers to another platform
 without carrying the sync call with them. On macOS \texttt{File::sync\_data} is
 \texttt{F\_FULLFSYNC} and forces a drive-cache flush; on Linux the same Rust
 call is \texttt{fdatasync}, which on typical hardware does not. A Linux run of
-this harness would very likely look an order of magnitude faster while
+this harness may well look an order of magnitude faster while
 providing \emph{weaker} durability, and a comparison that does not quote both
 the call and its measured cost is not a comparison of anything.
 

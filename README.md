@@ -6,7 +6,7 @@
   <img alt="Rust 2021" src="https://img.shields.io/badge/rust-2021%20%C2%B7%201.90%2B-CFFF04?style=flat-square&labelColor=0A0A0A">
   <img alt="tests passing" src="https://img.shields.io/badge/tests-54%20passing-CFFF04?style=flat-square&labelColor=0A0A0A">
   <img alt="Apache 2.0" src="https://img.shields.io/badge/licence-Apache--2.0-CFFF04?style=flat-square&labelColor=0A0A0A">
-  <img alt="Phase 1 of 2" src="https://img.shields.io/badge/build-phase%201%20of%202-8F8A82?style=flat-square&labelColor=0A0A0A">
+  <img alt="Phase 1 of 2 plus bench" src="https://img.shields.io/badge/build-phase%201%20of%202%20%2B%20bench-8F8A82?style=flat-square&labelColor=0A0A0A">
 </p>
 
 ---
@@ -204,7 +204,8 @@ One run per cell, no warm-up, no repetitions. Everything below is in
 [`results/`](results/README.md), and **that file's "Outcome" section is the
 authoritative reading** — it lists caveats this summary compresses.
 
-*Linkability is the headline, and it is the objection landing.* A single
+*Linkability is the half we could measure, and it is where the objection
+lands.* A single
 global tree's effective anonymity set grows with the fleet: 20, 200, 2,000,
 20,000 actions at 1/10/100/1,000 agents, one tree, 0.00 bits of tree-identity
 entropy at every size. A tree per agent pins the effective anonymity set at
@@ -230,11 +231,12 @@ thousand — but throughput stops tracking the sync ceiling well before reaching
 it. Per-batch non-sync time rises from ~0.21 ms at batch size 1 to ~22.9 ms at
 batch size 909; our best account of that is the single commit thread, which
 canonicalizes, hashes and chains every record serially before the batch's one
-`fsync` can start. That is an account, not an attribution. Treat the implied
-fsync share as an upper bound rather than a decomposition of wall time:
-`sync_us` was probed with an 11-byte write, while a full batch writes hundreds
-of kilobytes, and `F_FULLFSYNC`'s cost is not independent of how many dirty
-bytes it flushes.
+`fsync` can start. That is an account, not an attribution. Treat the implied **non-sync
+residual as an upper bound**, not as a decomposition of wall time:
+`sync_us` was probed with an 11-byte write, while a full batch writes
+hundreds of kilobytes, and `F_FULLFSYNC`'s cost is not independent of how
+many dirty bytes it flushes — so some of what looks like non-sync time may
+be real sync cost the probe never saw.
 
 *The topology axis was not tested.* `run()` uses the topology only to label
 its output; the commit path does no tree work at all, so the three throughput
@@ -285,9 +287,9 @@ findings above — including the durability test that passes while the system it
 tests is broken, which we think is the more useful of the two because it is a
 statement about how the property gets *tested* rather than about one schema.
 
-No number in it is typed by hand where it could be generated, and it reports
-the mistake that produced its most interesting finding rather than presenting
-the finding as foresight.
+Its figures come from `results/*.json` on one machine, one run per cell,
+and it reports the mistake that produced its most interesting finding
+rather than presenting the finding as foresight.
 
 ---
 
